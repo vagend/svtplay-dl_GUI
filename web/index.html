@@ -177,7 +177,7 @@ main { flex: 1; overflow-y: auto; padding: 16px 24px 24px; }
 .card.done .meta .status { color: var(--accent-text); }
 .card.error .meta .status, .meta .note.error { color: var(--danger); }
 .card.skipped .meta .status, .meta .note.warn { color: var(--warn); }
-.card.downloading .meta .status, .card.merging .meta .status, .card.starting .meta .status { color: var(--text); }
+.card.downloading .meta .status, .card.merging .meta .status, .card.moving .meta .status, .card.starting .meta .status { color: var(--text); }
 .progress { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
 .bar { flex: 1; height: 6px; border-radius: 999px; background: var(--track); overflow: hidden; position: relative; }
 .bar > i { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--accent); border-radius: 999px; transition: width .4s ease; }
@@ -286,6 +286,7 @@ pre.log { margin: 0; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monosp
     <div class="brand">svtplay-dl <small>Video downloader</small></div>
     <div class="spacer"></div>
     <button class="chip netchip" id="netchip" title="Where your downloads appear to come from. Click to check again."><span class="flag" id="netflag">🌐</span><span id="nettext">Checking location…</span></button>
+    <button class="chip updchip" id="appchip" hidden title="A newer version of this app is available. Click to update."><svg class="i"><use href="#i-up"/></svg><span id="apptext">Update app</span></button>
     <button class="chip updchip" id="updchip" hidden title="A newer svtplay-dl is available. Click to update."><svg class="i"><use href="#i-up"/></svg><span id="updtext">Update svtplay-dl</span></button>
     <button class="chip" id="toolchip"><span class="dot"></span><span id="tooltext">Checking svtplay-dl…</span></button>
     <button class="btn primary" id="installTools" hidden style="height:30px;font-size:12.5px"><svg class="i"><use href="#i-down"/></svg>Install</button>
@@ -345,6 +346,11 @@ pre.log { margin: 0; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monosp
           <span class="spacer"></span>
           <button class="btn" id="v_check">Check for updates</button>
           <button class="btn primary" id="v_update" hidden><svg class="i"><use href="#i-up"/></svg>Update</button></div>
+        <label class="k" id="a_label">App version</label>
+        <div class="verrow" id="a_row"><span class="v" id="a_inst">–</span><span class="st" id="a_status"></span>
+          <span class="spacer"></span>
+          <button class="btn" id="a_check">Check for updates</button>
+          <button class="btn primary" id="a_update" hidden><svg class="i"><use href="#i-up"/></svg>Update</button></div>
         <label class="k" for="s_path">svtplay-dl program</label>
         <div class="inline"><input class="input" id="s_path" placeholder="Find automatically"><button class="btn" id="s_browse">Browse…</button></div>
         <div class="help" id="s_found"></div>
@@ -420,7 +426,7 @@ pre.log { margin: 0; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monosp
   <div class="modal" style="width:min(480px,100%)">
     <div class="content" style="text-align:center;padding:30px 30px 26px">
       <img src="/icons/icon.svg?v=3" alt="" style="width:84px;height:84px">
-      <h3 style="margin:14px 0 6px;font-size:18px">svtplay-dl GUI has stopped</h3>
+      <h3 style="margin:14px 0 6px;font-size:18px" id="offTitle">svtplay-dl GUI has stopped</h3>
       <p style="margin:0;color:var(--muted)">You can close this window.</p>
     </div>
   </div>
@@ -479,7 +485,7 @@ async function refresh() {
 function startPolling() { refresh(); polling = setInterval(refresh, 600); }
 
 // ---------- rendering ----------
-const ACTIVE = new Set(["starting", "downloading", "merging"]);
+const ACTIVE = new Set(["starting", "downloading", "merging", "moving"]);
 function render() {
   const s = state.settings;
   // tools chip
@@ -500,6 +506,7 @@ function render() {
   if ($("#pickDlg").classList.contains("open")) renderPicker();
   renderNet();
   renderUpdate();
+  renderAppUpdate();
 
   // footer
   fillSelect($("#quality"), state.presets.quality.map(v => ({ value: v, label: v })), s.quality);
@@ -567,6 +574,33 @@ function renderNet() {
                 when && `Checked at ${when}. Click to check again.`].filter(Boolean).join("\n");
 }
 const METHOD = { brew: "Homebrew", winget: "winget", pip: "pip", manual: "installed by hand", none: "" };
+function renderAppUpdate() {
+  const a = state.appUpdate || {};
+  $("#a_label").hidden = $("#a_row").hidden = !a.supported;
+  $("#appchip").hidden = !(a.supported && (a.available || a.running));
+  $("#apptext").textContent = a.running ? `Updating app… ${a.percent ?? 0}%` : `Update app to ${a.latest}`;
+  $("#appchip").disabled = !!a.running;
+  $("#a_inst").textContent = a.current || "–";
+  const st = $("#a_status");
+  if (a.running) { st.textContent = `Downloading the update… ${a.percent ?? 0}%`; st.className = "st"; }
+  else if (a.checking) { st.textContent = "Checking for updates…"; st.className = "st"; }
+  else if (a.error) { st.textContent = a.error; st.className = "st err"; }
+  else if (a.available) { st.textContent = `Version ${a.latest} is available`; st.className = "st new"; }
+  else if (a.checkedAt) { st.textContent = "Up to date"; st.className = "st"; }
+  else { st.textContent = ""; st.className = "st"; }
+  $("#a_update").hidden = !a.available || !!a.running;
+  $("#a_check").disabled = !!(a.checking || a.running);
+  if (a.error && a.error !== renderAppUpdate.lastErr) toast(a.error);
+  renderAppUpdate.lastErr = a.error;
+}
+async function startAppUpdate() {
+  const a = state.appUpdate || {};
+  if (!await ask(`Update svtplay-dl GUI to ${a.latest}? It downloads the new version, then closes and reopens by itself.`, "Update and restart", "Not now")) return;
+  const r = await api("/api/app_update", {});
+  if (!r.ok) return toast(r.message);
+  document.querySelectorAll(".overlay.open").forEach(o => { if (o.id !== "offline") o.classList.remove("open"); });
+  refresh();
+}
 function renderUpdate() {
   const u = state.update || {};
   const pill = $("#updchip");
@@ -795,7 +829,7 @@ function updateCard(el, it) {
   fill.style.width = (it.percent != null ? it.percent : (it.status === "done" ? 100 : 0)) + "%";
   bar.parentElement.style.visibility = (["new", "waiting", "stopped", "skipped", "error"].includes(it.status) && it.percent == null) ? "hidden" : "visible";
   let stats = "";
-  if (it.status === "downloading") {
+  if (it.status === "downloading" || it.status === "moving") {
     stats = [it.percent != null ? Math.floor(it.percent) + "%" : "", it.speed, it.eta && "ETA " + it.eta].filter(Boolean).join("  ·  ");
   }
   el.querySelector(".stats").textContent = stats;
@@ -874,6 +908,9 @@ $("#allBtn").onclick = () => api("/api/download_all", {}).then(refresh);
 $("#updchip").onclick = startUpdate;
 $("#v_update").onclick = startUpdate;
 $("#v_check").onclick = () => api("/api/update_check", {}).then(refresh);
+$("#a_check").onclick = () => api("/api/app_update_check", {}).then(refresh);
+$("#a_update").onclick = startAppUpdate;
+$("#appchip").onclick = startAppUpdate;
 $("#updClose").onclick = () => $("#updDlg").classList.remove("open");
 $("#netchip").onclick = () => api("/api/check_network", {}).then(refresh);
 $("#stopAllBtn").onclick = () => api("/api/stop_all", {}).then(refresh);

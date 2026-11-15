@@ -50,6 +50,125 @@ else:
 # Settings
 # --------------------------------------------------------------------------
 
+# --------------------------------------------------------------------------
+# Network folders: download on this computer first, then move the result there
+# --------------------------------------------------------------------------
+
+NETWORK_FS = {"smbfs", "afpfs", "nfs", "nfs4", "webdav", "cifs", "smb3", "smb2", "fuse.sshfs", "9p"}
+
+
+def _mount_type(path: str) -> str:
+    """File system type of the mount that holds path (Mac/Linux), or ''."""
+    try:
+        if IS_MAC:
+            out = subprocess.run(["/sbin/mount"], capture_output=True, text=True, timeout=10).stdout
+            # "//user@server/share on /Volumes/share (smbfs, nodev, nosuid, mounted by me)"
+            rows = [(m.group(2), m.group(3).split(",")[0].strip())
+                    for m in (re.match(r"^(.*) on (/.*) \(([^)]*)\)$", line) for line in out.splitlines()) if m]
+        else:
+            rows = []
+            with open("/proc/mounts", encoding="utf-8") as f:
+                for line in f:
+                    parts = line.split()
+                    if len(parts) >= 3:
+                        rows.append((parts[1].replace("\\040", " "), parts[2]))
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    best, kind = "", ""
+    for mnt, typ in rows:
+        m = mnt.rstrip("/") or "/"
+        if (path == m or path.startswith(m.rstrip("/") + "/")) and len(m) >= len(best):
+            best, kind = m, typ
+    return kind
+
+
+def is_network_path(path: str) -> bool:
+    """True for a folder on another computer (SMB/NFS share, mapped network drive, \\\\server\\share)."""
+    try:
+        p = str(Path(path).expanduser().resolve())
+    except OSError:
+        p = str(Path(path).expanduser())
+    if IS_WINDOWS:
+        if p.startswith("\\\\"):
+            return True
+        try:
+            import ctypes
+            DRIVE_REMOTE = 4
+            return ctypes.windll.kernel32.GetDriveTypeW(p[:3]) == DRIVE_REMOTE  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001
+            return False
+    return _mount_type(p).lower() in NETWORK_FS
+
+
+def staging_root() -> Path:
+    """A folder on this computer where downloads for network folders are made first."""
+    if IS_WINDOWS:
+        base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
+    elif IS_MAC:
+        base = Path.home() / "Library" / "Caches"
+    else:
+        base = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
+    return base / "svtplay-dl-gui" / "downloading"
+
+
+def move_finished(src_root: Path, dst_root: Path, overwrite: bool,
+                  progress: Callable[[int, int], None], tries: int = 15, wait: float = 2.0) -> dict:
+    """Copy every file under src_root into dst_root (keeping subfolders), then delete the originals.
+    Each file is copied as name.part and renamed when complete, so a media server never sees half a file.
+    A file that is busy (another program has it open) is retried for a while.
+    Returns {"moved": [relative paths], "skipped": [...], "error": "message or ''"}."""
+    import time as _time
+    files = sorted((f for f in src_root.rglob("*") if f.is_file()), key=lambda f: f.stat().st_size)
+    total = sum(f.stat().st_size for f in files) or 1
+    done = 0
+    res = {"moved": [], "skipped": [], "error": ""}
+    for f in files:
+        rel = f.relative_to(src_root)
+        dst = dst_root / rel
+        size = f.stat().st_size
+        if dst.exists() and not overwrite:
+            res["skipped"].append(str(rel))
+            done += size
+            progress(done, total)
+            continue
+        part = dst.with_name(dst.name + ".part")
+        last_err: Optional[Exception] = None
+        for attempt in range(tries):
+            try:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                with open(f, "rb") as a, open(part, "wb") as b:
+                    copied = 0
+                    while True:
+                        chunk = a.read(4 * 1024 * 1024)
+                        if not chunk:
+                            break
+                        b.write(chunk)
+                        copied += len(chunk)
+                        progress(done + copied, total)
+                os.replace(part, dst)
+                last_err = None
+                break
+            except OSError as e:
+                last_err = e
+                try:
+                    part.unlink()
+                except OSError:
+                    pass
+                _time.sleep(wait)
+        if last_err is not None:
+            res["error"] = f"Couldn't copy {rel.name} to {dst_root}: {last_err}"
+            return res
+        done += size
+        progress(done, total)
+        res["moved"].append(str(rel))
+        try:
+            f.unlink()
+        except OSError:
+            pass
+    shutil.rmtree(src_root, ignore_errors=True)
+    return res
+
+
 def settings_path() -> Path:
     if IS_WINDOWS:
         base = Path(os.environ.get("APPDATA", Path.home()))
@@ -270,8 +389,10 @@ def keep_with_app(proc: subprocess.Popen) -> None:
         pass
 
 
-def _popen_flags() -> dict:
+def _popen_flags(detached: bool = False) -> dict:
     if IS_WINDOWS:
+        if detached:   # a program that keeps running after this one quits (the updated app)
+            return {"creationflags": 0x00000008 | 0x00000200}  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
         return {"creationflags": 0x08000000}  # CREATE_NO_WINDOW
     return {"start_new_session": True}        # own process group, so we can kill ffmpeg too
 

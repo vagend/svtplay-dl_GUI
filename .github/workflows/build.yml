@@ -1,5 +1,5 @@
 # Builds the Mac app and the Windows program every time you push, and puts them on the
-# repo's Releases page under "Latest build". Nothing to do by hand.
+# repo's Releases page as the latest release. The app checks that release to update itself.
 name: Build apps
 
 on:
@@ -29,6 +29,12 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Stamp build number
+        shell: bash
+        run: |
+          echo "${{ github.run_number }}" > BUILD
+          echo "${{ github.repository }}" > REPO
+
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -57,6 +63,7 @@ jobs:
           name: svtplay-dl-GUI-${{ matrix.label }}
           path: dist/svtplay-dl-GUI-${{ matrix.label }}.zip
           if-no-files-found: error
+          retention-days: 3   # only needed until the release step; keeps storage use tiny
 
   release:
     needs: build
@@ -76,7 +83,7 @@ jobs:
           gh release delete latest --yes --cleanup-tag || true
           gh release create latest out/*.zip \
             --target "$GITHUB_SHA" \
-            --title "svtplay-dl GUI $VERSION (latest build)" \
+            --title "svtplay-dl GUI $VERSION (build ${{ github.run_number }})" \
             --latest \
             --notes "Built from ${GITHUB_SHA::7} on $(date -u '+%Y-%m-%d %H:%M') UTC.
 

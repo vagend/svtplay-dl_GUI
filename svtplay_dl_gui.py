@@ -37,12 +37,29 @@ import svtdl_core as core  # noqa: E402
 # Inside the packaged app the page files are unpacked next to the code (PyInstaller's _MEIPASS).
 RES_DIR = Path(getattr(sys, "_MEIPASS", HERE))
 WEB_DIR = (RES_DIR / "web").resolve()
-try:
-    APP_VERSION = (RES_DIR / "VERSION").read_text(encoding="utf-8").strip()
-except OSError:
-    APP_VERSION = ""
+def _res_text(name: str) -> str:
+    try:
+        return (RES_DIR / name).read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+APP_VERSION = _res_text("VERSION")
+APP_BUILD = int(_res_text("BUILD") or 0)        # GitHub's build number, written by the build workflow
+APP_REPO = _res_text("REPO")                    # e.g. vagend/svtplay-dl_GUI, written by the build workflow
+FROZEN = bool(getattr(sys, "frozen", False))
+
+if FROZEN:
+    # The packaged app has its own copy of Python, which may not see the system's certificates:
+    # use the certificate list bundled with it for https.
+    try:
+        import ssl
+        import certifi
+        ssl._create_default_https_context = lambda: ssl.create_default_context(cafile=certifi.where())  # noqa: E731
+    except ImportError:
+        pass
 WINDOW = None   # the app's window when it runs as an app (pywebview), else None
-ACTIVE = {"starting", "downloading", "merging"}
+ACTIVE = {"starting", "downloading", "merging", "moving"}
 STARTABLE = {"new", "error", "stopped"}
 STATUS_TEXT = {
     "new": "Ready",
@@ -51,6 +68,7 @@ STATUS_TEXT = {
     "starting": "Starting…",
     "downloading": "Downloading",
     "merging": "Merging audio, video and subtitles…",
+    "moving": "Copying to the network folder…",
     "done": "Done",
     "skipped": "Already downloaded",
     "error": "Failed",
@@ -258,6 +276,147 @@ def winget_latest(winget: str) -> str:
 
 
 _SPINNER_RE = re.compile(r"^[\s\-\\|/]*$|[\u2580-\u259f]")  # winget's spinner and progress-bar lines
+
+
+_RELEASE_RE = re.compile(r"(\d+(?:\.\d+)+)\s*\(build\s*(\d+)\)", re.I)
+
+
+def app_bundle() -> Optional[Path]:
+    """The installed app: the .app bundle on a Mac, the .exe on Windows. None when run from the code."""
+    if not FROZEN:
+        return None
+    exe = Path(sys.executable).resolve()
+    if core.IS_MAC:
+        for parent in exe.parents:
+            if parent.suffix == ".app":
+                return parent
+        return None
+    return exe
+
+
+class AppUpdater:
+    """Keeps the app itself up to date from the repo's GitHub Releases ("Latest build")."""
+
+    def __init__(self, app: "App"):
+        self.app = app
+        self.state = {"supported": bool(app_bundle() and APP_REPO and (core.IS_MAC or core.IS_WINDOWS)),
+                      "current": f"{APP_VERSION} (build {APP_BUILD})" if APP_BUILD else APP_VERSION,
+                      "latest": "", "available": False, "checking": False, "running": False,
+                      "percent": None, "error": "", "checkedAt": 0}
+        self.asset: dict = {}
+
+    def snapshot(self) -> dict:
+        return dict(self.state)
+
+    def check(self) -> None:
+        if not self.state["supported"] or self.state["checking"] or self.state["running"]:
+            return
+        self.state.update(checking=True, error="")
+
+        def work():
+            try:
+                rel = _get_json(f"https://api.github.com/repos/{APP_REPO}/releases/latest")
+                m = _RELEASE_RE.search(rel.get("name") or "")
+                want = "svtplay-dl-GUI-mac.zip" if core.IS_MAC else "svtplay-dl-GUI-windows.zip"
+                asset = next((a for a in rel.get("assets", []) if a.get("name") == want), None)
+                if m and asset:
+                    latest = (version_tuple(m.group(1)), int(m.group(2)))
+                    self.asset = asset
+                    self.state.update(latest=f"{m.group(1)} (build {m.group(2)})",
+                                      available=latest > (version_tuple(APP_VERSION), APP_BUILD))
+            except Exception as e:  # noqa: BLE001
+                self.state["error"] = f"Couldn't check for app updates: {e}"
+            finally:
+                self.state.update(checking=False, checkedAt=time.time())
+        threading.Thread(target=work, daemon=True).start()
+
+    def run(self) -> dict:
+        if not self.state["supported"]:
+            return {"ok": False, "message": "Updating itself only works in the installed app."}
+        if self.state["running"]:
+            return {"ok": True}
+        if not self.state["available"] or not self.asset:
+            return {"ok": False, "message": "There's no newer version of the app."}
+        if self.app.busy():
+            return {"ok": False, "message": "Wait for the downloads to finish (or stop them), then update."}
+        target = app_bundle()
+        if core.IS_MAC and "/AppTranslocation/" in str(target):
+            return {"ok": False, "message": "Move svtplay-dl GUI into your Applications folder first, "
+                                           "open it from there, then update."}
+        self.state.update(running=True, percent=0, error="")
+        threading.Thread(target=self._install, args=(target,), daemon=True).start()
+        return {"ok": True}
+
+    def _install(self, target: Path) -> None:
+        work = core.staging_root() / "app-update"
+        try:
+            shutil.rmtree(work, ignore_errors=True)
+            work.mkdir(parents=True, exist_ok=True)
+            zpath = work / self.asset["name"]
+            self._download(self.asset["browser_download_url"], zpath, int(self.asset.get("size") or 0))
+            new = work / "new"
+            if core.IS_MAC:   # ditto keeps the app's signature and permissions intact
+                r = subprocess.run(["/usr/bin/ditto", "-x", "-k", str(zpath), str(new)], capture_output=True, text=True)
+                if r.returncode != 0:
+                    raise RuntimeError(r.stderr.strip() or "couldn't unzip the update")
+                fresh = new / target.name
+                if not fresh.is_dir():
+                    fresh = next(new.glob("*.app"))
+                old = work / "old.app"
+                shutil.move(str(target), str(old))         # a running app can be moved aside
+                try:
+                    shutil.move(str(fresh), str(target))
+                except Exception:
+                    shutil.move(str(old), str(target))     # put the old one back
+                    raise
+                relaunch = ["/usr/bin/open", "-n", "-a", str(target), "--args", "--after-update"]
+            else:
+                import zipfile
+                with zipfile.ZipFile(zpath) as z:
+                    exe_name = next(n for n in z.namelist() if n.lower().endswith(".exe"))
+                    z.extract(exe_name, new)
+                fresh = new / exe_name
+                os.chmod(fresh, 0o755)
+                old = target.with_name(target.stem + ".old.exe")
+                if old.exists():
+                    old.unlink()
+                os.replace(target, old)                    # Windows lets a running .exe be renamed
+                try:
+                    shutil.move(str(fresh), str(target))
+                except Exception:
+                    os.replace(old, target)
+                    raise
+                relaunch = [str(target), "--after-update"]
+            self.state.update(percent=100)
+            try:
+                subprocess.Popen(relaunch, close_fds=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL, **core._popen_flags(detached=True))
+            except OSError as e:   # updated, but it couldn't reopen itself: the user opens it again
+                print("Couldn't reopen the app after updating:", e)
+            threading.Thread(target=shutdown, daemon=True).start()
+        except Exception as e:  # noqa: BLE001
+            self.state.update(running=False, percent=None, error=f"The app update didn't work: {e}")
+
+    def _download(self, url: str, dest: Path, size: int) -> None:
+        curl = shutil.which("curl") or ("/usr/bin/curl" if Path("/usr/bin/curl").exists() else None)
+        if curl:
+            p = subprocess.Popen([curl, "-sSfL", "-o", str(dest), url], stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, **core._popen_flags())
+            while p.poll() is None:
+                if size and dest.exists():
+                    self.state["percent"] = min(99, dest.stat().st_size * 100 // size)
+                time.sleep(0.3)
+            if p.returncode != 0:
+                raise RuntimeError((p.stderr.read().decode("utf-8", "replace").strip() or "download failed"))
+            return
+        req = urllib.request.Request(url, headers={"User-Agent": "svtplay-dl-gui"})
+        with urllib.request.urlopen(req, timeout=60) as r, open(dest, "wb") as f:
+            got = 0
+            while chunk := r.read(1 << 20):
+                f.write(chunk)
+                got += len(chunk)
+                if size:
+                    self.state["percent"] = min(99, got * 100 // size)
 
 
 class Updater:
@@ -478,6 +637,7 @@ class Item:
         self.episodes: list[dict] = []   # series card only: episodes found, waiting to be chosen
         self.runner: Optional[core.Runner] = None
         self.log: list[str] = []
+        self.stage_dir: Optional[Path] = None
         self.output_name = ""
         self.output_dir = ""
         self.had_error = False
@@ -540,9 +700,21 @@ class Item:
             return
         self.output_dir = str(Path(s.output_dir).expanduser())
         self.output_name = ""
+        # A network folder: svtplay-dl and ffmpeg delete and rename files at the end, which shares
+        # often refuse while a media server or another computer has the file open. So download on
+        # this computer first and copy the finished file over afterwards.
+        self.drop_stage()
+        work_dir = self.output_dir
+        if core.is_network_path(self.output_dir):
+            self.stage_dir = core.staging_root() / f"item-{self.id}-{int(time.time())}"
+            try:
+                self.stage_dir.mkdir(parents=True, exist_ok=True)
+                work_dir = str(self.stage_dir)
+            except OSError:
+                self.stage_dir = None
         self.had_error = self.skipped = False
         self.last_error = ""
-        settings = core.Settings(**{**s.__dict__, "output_dir": self.output_dir})
+        settings = core.Settings(**{**s.__dict__, "output_dir": work_dir})
         full = cmd + core.build_args(settings, self.quality_args()) + (["--verbose"] if verbose else []) + [self.url]
         earlier = self.log if verbose else []
         self.verbose_run = verbose
@@ -588,6 +760,16 @@ class Item:
                 if not self.log or self.log[-1] != last:
                     self.log.append(last)
             self.runner = None
+            staged = getattr(self, "stage_dir", None)
+            ok = not cancelled and not self.skipped and rc == 0 and not self.had_error
+            if ok and staged:
+                self.set("moving")
+                self.percent = 0
+                threading.Thread(target=self._move_to_share, daemon=True).start()
+                return
+            if not (ok or ((rc != 0 or self.had_error) and not getattr(self, "verbose_run", False)
+                           and any("svtplay-dl crashed" in l for l in self.log))):
+                self.drop_stage()
             if cancelled:
                 self.set("stopped")
             elif self.skipped:
@@ -611,6 +793,45 @@ class Item:
                 self.set("error", msg or f"svtplay-dl exited with code {rc}")
             else:
                 self.set("done", self.output_name and Path(self.output_name).name, "ok")
+        self.app.pump()
+
+    def drop_stage(self) -> None:
+        staged = getattr(self, "stage_dir", None)
+        if staged:
+            shutil.rmtree(staged, ignore_errors=True)
+        self.stage_dir = None
+
+    def _move_to_share(self) -> None:
+        staged, dest = self.stage_dir, Path(self.output_dir)
+        self.log.append(f"Copying the finished files to {dest} …")
+        t0 = [time.time(), 0]
+
+        def progress(done: int, total: int) -> None:
+            with self.app.lock:
+                self.percent = done * 100.0 / total
+                dt = time.time() - t0[0]
+                if dt >= 1:
+                    self.speed = f"{(done - t0[1]) / dt / 1e6:.1f} MB/s"
+                    t0[0], t0[1] = time.time(), done
+        res = core.move_finished(staged, dest, self.app.settings.overwrite, progress)
+        with self.app.lock:
+            for r in res["moved"]:
+                self.log.append(f"Copied: {r}")
+            for r in res["skipped"]:
+                self.log.append(f"Already there, kept the existing file: {r}")
+            if res["error"]:
+                self.log.append("ERROR: " + res["error"])
+                self.set("error", res["error"] + f" The download is kept in {staged}.")
+            else:
+                self.stage_dir = None
+                main = sorted(res["moved"] or res["skipped"],
+                              key=lambda r: (dest / r).stat().st_size if (dest / r).exists() else 0)
+                if main:
+                    self.output_name = main[-1]
+                if res["moved"]:
+                    self.set("done", Path(self.output_name).name if self.output_name else "", "ok")
+                else:
+                    self.set("skipped", "Turn on “Overwrite” in Settings to download it again")
         self.app.pump()
 
     def stop(self) -> None:
@@ -650,6 +871,10 @@ class App:
         self.quit_ask = False          # the window was closed while downloads were running
         self.quitting = False
         self.updater = Updater(self)
+        self.app_updater = AppUpdater(self)
+        self.app_updater.check()
+        # leftovers from downloads for network folders that never finished (app closed or crashed)
+        threading.Thread(target=shutil.rmtree, args=(core.staging_root(),), kwargs={"ignore_errors": True}, daemon=True).start()
         self.check_tools()
         self.check_network()
         self.updater.check()
@@ -686,6 +911,8 @@ class App:
             self.check_network()
             if now - self.updater.state.get("checkedAt", 0) > 6 * 3600:
                 self.updater.check()
+            if now - self.app_updater.state.get("checkedAt", 0) > 6 * 3600:
+                self.app_updater.check()
         self.last_seen = now
 
     # ----- tools ------------------------------------------------------------
@@ -718,7 +945,8 @@ class App:
                 "platform": "mac" if core.IS_MAC else ("windows" if core.IS_WINDOWS else "linux"),
                 "quitAsk": self.quit_ask,
                 "appWindow": WINDOW is not None,
-                "appVersion": APP_VERSION,
+                "appVersion": self.app_updater.state["current"],
+                "appUpdate": self.app_updater.snapshot(),
             }
 
     def busy(self) -> bool:
@@ -726,6 +954,9 @@ class App:
         with self.lock:
             return (any(it.status in ACTIVE for it in self.items) or bool(self.waiting)
                     or bool(self.updater.state.get("running")))
+
+    def updating_app(self) -> bool:
+        return bool(self.app_updater.state.get("running"))
 
     def find(self, item_id: int) -> Optional[Item]:
         for it in self.items:
@@ -924,6 +1155,11 @@ class App:
             return {"ok": True}
         if name == "update_run":
             return self.updater.run()
+        if name == "app_update":
+            return self.app_updater.run()
+        if name == "app_update_check":
+            self.app_updater.check()
+            return {"ok": True}
         if name == "tools_install":
             return self.updater.install()
         if name == "quit_cancel":
@@ -1322,6 +1558,7 @@ def main() -> None:
     ap.add_argument("--port", type=int, default=0, help="port for the page (default: any free one)")
     ap.add_argument("--browser", action="store_true", help="use a browser window instead of the app window")
     ap.add_argument("--no-browser", action="store_true", help="don't open any window (for testing)")
+    ap.add_argument("--after-update", action="store_true", help=argparse.SUPPRESS)
     args, _unknown = ap.parse_known_args()   # macOS may add its own arguments when starting an app
 
     webview = None
@@ -1332,6 +1569,17 @@ def main() -> None:
             print("pywebview isn't installed, so the GUI opens in your browser instead.")
     if getattr(sys, "frozen", False) or (sys.stdout is None):
         log_to_file()
+
+    if args.after_update:   # started by the old copy just before it quit: give it time to finish
+        for _ in range(60):
+            if not running_instance():
+                break
+            time.sleep(0.25)
+    if FROZEN and core.IS_WINDOWS:   # the copy replaced by the last app update
+        try:
+            Path(sys.executable).with_name(Path(sys.executable).stem + ".old.exe").unlink()
+        except OSError:
+            pass
 
     other = running_instance()
     if other:   # already open: bring that window forward instead of starting a second copy

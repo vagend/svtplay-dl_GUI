@@ -36,10 +36,20 @@ winget on Windows. (If the Mac doesn't have Homebrew yet, install it from https:
 
 ## Updating
 
-- **The app:** download the new zip from Releases and replace the old app with it.
-  Settings > the version number next to "Settings" shows which one you have.
+- **The app updates itself.** When a newer build is on the Releases page, a green
+  "Update app to …" button appears at the top. Click it: the app downloads the new version,
+  closes and reopens by itself. Settings shows which version you have and can check right away.
+  (Versions before 1.1.0 can't do this yet: download 1.1.0 by hand once.)
 - **svtplay-dl:** a green "Update svtplay-dl to …" button appears in the app when a newer version
   is out. It updates through Homebrew, winget or pip, whichever installed it.
+
+## Saving to a network folder
+
+Saving straight to a network folder (for example a Plex server's share) works. The app sees that
+the folder is on another computer, downloads to this computer first, and copies the finished
+video over at the end. It copies to a temporary `.part` name and renames it when complete, so
+Plex never picks up half a file. If the share is busy or unreachable, it keeps trying for about
+30 seconds. If it still can't copy, the download is kept on this computer and the card says where.
 
 ## Closing
 
@@ -73,7 +83,8 @@ them and quit. The power button at the top right does the same.
   svtplay-dl's progress output.
 - [PyInstaller](https://pyinstaller.org) packs it all, Python included, into the Mac app and the
   Windows .exe. The recipe is `svtplay-dl-gui.spec`; the GitHub workflow is
-  `.github/workflows/build.yml`. Change `VERSION` when you want a new version number.
+  `.github/workflows/build.yml`. Every push makes a new build (the build number goes up by
+  itself); change `VERSION` for a new version number.
 - Settings and the log file (`app.log`) are in `~/Library/Application Support/svtplay-dl-gui/`
   on a Mac and `%APPDATA%\svtplay-dl-gui\` on Windows.
 - `tools/make_icons.py` redraws the icon (a computer with a download arrow, in the Swedish flag's

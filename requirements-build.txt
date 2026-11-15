@@ -1,3 +1,4 @@
 # Only needed to BUILD the app (GitHub does this for you). The finished app needs none of it.
 pywebview>=6.1
 pyinstaller>=6.10
+certifi
