@@ -527,7 +527,7 @@ class Item:
             self.speed = self.eta = ""
 
     # ----- running ----------------------------------------------------------
-    def start(self) -> None:
+    def start(self, verbose: bool = False) -> None:
         s = self.app.settings
         cmd = self.app.svtplay_cmd
         if not cmd:
@@ -543,9 +543,12 @@ class Item:
         self.had_error = self.skipped = False
         self.last_error = ""
         settings = core.Settings(**{**s.__dict__, "output_dir": self.output_dir})
-        full = cmd + core.build_args(settings, self.quality_args()) + [self.url]
-        self.log = ["$ " + " ".join(full), ""]
-        self.set("starting")
+        full = cmd + core.build_args(settings, self.quality_args()) + (["--verbose"] if verbose else []) + [self.url]
+        earlier = self.log if verbose else []
+        self.verbose_run = verbose
+        self.log = earlier + (["", "--- svtplay-dl crashed, so it was run again with --verbose for details ---"]
+                              if verbose else []) + ["$ " + " ".join(full), ""]
+        self.set("starting", "svtplay-dl crashed. Trying once more to get details…" if verbose else "")
         self.runner = core.Runner(full, self.on_event, self.on_exit)
         self.runner.start()
 
@@ -589,13 +592,20 @@ class Item:
                 self.set("stopped")
             elif self.skipped:
                 self.set("skipped", "Turn on “Overwrite” in Settings to download it again")
+            elif ((rc != 0 or self.had_error) and not getattr(self, "verbose_run", False)
+                  and any("svtplay-dl crashed" in l for l in self.log)):
+                # svtplay-dl hides the reason unless it runs with --verbose, so run it once more that way
+                self.start(verbose=True)
+                return
             elif rc != 0 or self.had_error:
                 msg = self.last_error
+                if "svtplay-dl crashed" in msg or "Include the URL used" in msg or "report it at" in msg:
+                    msg = ""
                 if not msg:
                     # svtplay-dl crashed: show the Python exception line from its traceback
                     crash = [l for l in self.log if re.match(r"^\w+(Error|Exception)\b.*:", l)]
                     if crash:
-                        msg = "svtplay-dl crashed: " + crash[-1]
+                        msg = "svtplay-dl crashed: " + crash[-1] + " (click the log icon for details)"
                         if "--resolution" in self.log[0] and "IndexError" in crash[-1]:
                             msg += " (this stream has no resolution info, so pick Quality: Best)"
                 self.set("error", msg or f"svtplay-dl exited with code {rc}")
