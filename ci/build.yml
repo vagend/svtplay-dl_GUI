@@ -1,0 +1,86 @@
+# Builds the Mac app and the Windows program every time you push, and puts them on the
+# repo's Releases page under "Latest build". Nothing to do by hand.
+name: Build apps
+
+on:
+  push:
+    branches: [main, master]
+    paths-ignore: ["**.md", "screenshot.png"]
+  workflow_dispatch:   # lets you start a build from the Actions tab
+
+permissions:
+  contents: write      # needed to publish the release
+
+concurrency:
+  group: build
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest      # Apple Silicon
+            label: mac
+          - os: windows-latest
+            label: windows
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-build.txt
+
+      - name: Build
+        run: pyinstaller --noconfirm --clean svtplay-dl-gui.spec
+
+      - name: Zip (Mac)
+        if: runner.os == 'macOS'
+        run: |
+          cd dist
+          ditto -c -k --sequesterRsrc --keepParent "svtplay-dl GUI.app" svtplay-dl-GUI-mac.zip
+
+      - name: Zip (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path "dist/svtplay-dl GUI.exe" -DestinationPath dist/svtplay-dl-GUI-windows.zip
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: svtplay-dl-GUI-${{ matrix.label }}
+          path: dist/svtplay-dl-GUI-${{ matrix.label }}.zip
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          path: out
+          merge-multiple: true
+
+      - name: Publish "Latest build"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          VERSION=$(gh api "repos/$GH_REPO/contents/VERSION?ref=$GITHUB_SHA" --jq .content | base64 -d | tr -d '[:space:]')
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest out/*.zip \
+            --target "$GITHUB_SHA" \
+            --title "svtplay-dl GUI $VERSION (latest build)" \
+            --latest \
+            --notes "Built from ${GITHUB_SHA::7} on $(date -u '+%Y-%m-%d %H:%M') UTC.
+
+          **Mac:** download svtplay-dl-GUI-mac.zip, open it, and drag *svtplay-dl GUI* into Applications.
+          **Windows:** download svtplay-dl-GUI-windows.zip, open it, and drag *svtplay-dl GUI.exe* wherever you like (e.g. Documents), then double-click it.
+
+          The first time you open it, your computer warns that the app isn't from a known developer. See the README for the two clicks that get past this."

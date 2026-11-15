@@ -1,2 +1,6 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+*.command text eol=lf
+*.icns binary
+*.ico binary
+*.png binary
