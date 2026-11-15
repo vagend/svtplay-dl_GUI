@@ -15,7 +15,7 @@ NAME = "svtplay-dl GUI"
 IS_MAC = sys.platform == "darwin"
 
 datas = [(str(ROOT / "web"), "web"), (str(ROOT / "VERSION"), ".")]
-datas += [(str(ROOT / n), ".") for n in ("BUILD", "REPO") if (ROOT / n).exists()]   # written by the GitHub build
+datas += [(str(ROOT / n), ".") for n in ("APP_BUILD", "APP_REPO") if (ROOT / n).exists()]   # written by the GitHub build
 datas += collect_data_files("certifi")          # certificates for https inside the app
 datas += collect_data_files("webview")          # pywebview's own scripts
 binaries = collect_dynamic_libs("webview")      # and, on Windows, its WebView2 helper DLLs

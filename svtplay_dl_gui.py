@@ -45,8 +45,8 @@ def _res_text(name: str) -> str:
 
 
 APP_VERSION = _res_text("VERSION")
-APP_BUILD = int(_res_text("BUILD") or 0)        # GitHub's build number, written by the build workflow
-APP_REPO = _res_text("REPO")                    # e.g. vagend/svtplay-dl_GUI, written by the build workflow
+APP_BUILD = int(_res_text("APP_BUILD") or 0)        # GitHub's build number, written by the build workflow
+APP_REPO = _res_text("APP_REPO")                    # e.g. vagend/svtplay-dl_GUI, written by the build workflow
 FROZEN = bool(getattr(sys, "frozen", False))
 
 if FROZEN:

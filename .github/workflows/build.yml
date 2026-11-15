@@ -32,8 +32,8 @@ jobs:
       - name: Stamp build number
         shell: bash
         run: |
-          echo "${{ github.run_number }}" > BUILD
-          echo "${{ github.repository }}" > REPO
+          echo "${{ github.run_number }}" > APP_BUILD
+          echo "${{ github.repository }}" > APP_REPO
 
       - uses: actions/setup-python@v6
         with:
