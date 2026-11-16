@@ -1,11 +1,15 @@
 # svtplay-dl GUI
 
+![svtplay-dl GUI](screenshot.png)
+
 A desktop app for [svtplay-dl](https://github.com/spaam/svtplay-dl), laid out after
 [Open Video Downloader](https://github.com/jely2002/youtube-dl-gui). One app for Mac, one for Windows.
 It's a normal app: double-click to open, close the window to quit. Nothing runs in the background,
 and it doesn't need Python.
 
 ## Getting the app
+
+**Download: https://github.com/vagend/svtplay-dl_GUI/releases/latest**
 
 Every time the code is pushed to GitHub, GitHub builds both apps and puts them on this repo's
 **Releases** page under **Latest build** (the build takes about 5 minutes; you can watch it on the
