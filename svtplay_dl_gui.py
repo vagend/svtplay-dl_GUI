@@ -319,7 +319,8 @@ class AppUpdater:
 
         def work():
             try:
-                rel = _get_json(f"https://api.github.com/repos/{APP_REPO}/releases/latest")
+                rel = _get_json(os.environ.get("SVTDL_GUI_RELEASE_API")   # (tests point this elsewhere)
+                                or f"https://api.github.com/repos/{APP_REPO}/releases/latest")
                 m = _RELEASE_RE.search(rel.get("name") or "")
                 want = "svtplay-dl-GUI-mac.zip" if core.IS_MAC else "svtplay-dl-GUI-windows.zip"
                 asset = next((a for a in rel.get("assets", []) if a.get("name") == want), None)
@@ -349,6 +350,14 @@ class AppUpdater:
                                            "does that for apps opened straight from Downloads. Quit the app, drag "
                                            "svtplay-dl GUI from Downloads into Applications, open it from there, and "
                                            "then update. From then on, updates work by themselves."}
+        probe = target.parent / ".svtplay-dl-gui-write-test"
+        try:
+            probe.write_bytes(b"")
+            probe.unlink()
+        except OSError:
+            return {"ok": False, "message": f"svtplay-dl GUI can't write to {target.parent}, so it can't replace "
+                                           "itself there. Move the app to a folder of your own (for example "
+                                           "Documents) and update from there."}
         self.state.update(running=True, percent=0, error="")
         threading.Thread(target=self._install, args=(target,), daemon=True).start()
         return {"ok": True}
@@ -387,21 +396,46 @@ class AppUpdater:
                     exe_name = next(n for n in z.namelist() if n.lower().endswith(".exe"))
                     z.extract(exe_name, new)
                 fresh = new / exe_name
-                os.chmod(fresh, 0o755)
-                old = target.with_name(target.stem + ".old.exe")
-                if old.exists():
-                    old.unlink()
-                os.replace(target, old)                    # Windows lets a running .exe be renamed
-                try:
-                    shutil.move(str(fresh), str(target))
-                except Exception:
-                    os.replace(old, target)
-                    raise
-                relaunch = [str(target), "--after-update"]
+                # The running .exe can't be renamed or replaced: it keeps its own file open (it unpacks
+                # itself from it). So a little script waits for the app to close, swaps the file and
+                # starts the new one.
+                script = work / "finish-update.cmd"
+                pids = [os.getpid()] + ([os.getppid()] if os.getppid() > 4 else [])
+                waits = "\r\n".join(
+                    f'tasklist /FI "PID eq {pid}" /NH 2>NUL | find "{pid}" >NUL && (ping -n 2 127.0.0.1 >NUL & goto wait)'
+                    for pid in pids)
+                log = core.settings_path().parent / "update.log"
+                script.write_text("\r\n".join([
+                    "@echo off",
+                    f'set LOG="{log}"',
+                    'echo %date% %time% waiting for the old app to close > %LOG%',
+                    "set tries=0",
+                    ":wait",
+                    waits,
+                    ":move",
+                    f'move /Y "{fresh}" "{target}" >> %LOG% 2>&1 && goto done',
+                    "set /a tries+=1",
+                    "if %tries% GEQ 30 goto failed",
+                    "ping -n 2 127.0.0.1 >NUL",
+                    "goto move",
+                    ":failed",
+                    'echo %date% %time% could not replace the app, starting the old one >> %LOG%',
+                    f'start "" "{target}"',
+                    "goto end",
+                    ":done",
+                    'echo %date% %time% replaced, starting the new one >> %LOG%',
+                    f'start "" /D "{target.parent}" "{target}" --after-update',
+                    'echo %date% %time% start returned %errorlevel% >> %LOG%',
+                    ":end",
+                    '(goto) 2>NUL & del "%~f0"',
+                    ""]), encoding="mbcs" if core.IS_WINDOWS else "utf-8")
+                relaunch = ["cmd.exe", "/c", str(script)]
             self.state.update(percent=100)
             try:
+                flags = ({"creationflags": 0x08000000 | 0x00000200} if core.IS_WINDOWS   # no window, own group
+                         else core._popen_flags(detached=True))
                 subprocess.Popen(relaunch, close_fds=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                 stderr=subprocess.DEVNULL, **core._popen_flags(detached=True))
+                                 stderr=subprocess.DEVNULL, env=core.clean_env(), **flags)
             except OSError as e:   # updated, but it couldn't reopen itself: the user opens it again
                 print("Couldn't reopen the app after updating:", e)
             threading.Thread(target=shutdown, daemon=True).start()
@@ -1681,6 +1715,9 @@ def main() -> None:
     ap.add_argument("--browser", action="store_true", help="use a browser window instead of the app window")
     ap.add_argument("--no-browser", action="store_true", help="don't open any window (for testing)")
     ap.add_argument("--after-update", action="store_true", help=argparse.SUPPRESS)
+    if getattr(sys, "frozen", False) or (sys.stdout is None):
+        log_to_file()
+        print("Started", APP_VERSION, sys.argv[1:])
     args, _unknown = ap.parse_known_args()   # macOS may add its own arguments when starting an app
 
     webview = None
@@ -1689,9 +1726,6 @@ def main() -> None:
             import webview  # pywebview: the native app window
         except ImportError:
             print("pywebview isn't installed, so the GUI opens in your browser instead.")
-    if getattr(sys, "frozen", False) or (sys.stdout is None):
-        log_to_file()
-
     if args.after_update:   # started by the old copy just before it quit: give it time to finish
         for _ in range(60):
             if not running_instance():

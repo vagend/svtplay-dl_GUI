@@ -330,8 +330,17 @@ def svtplay_version(cmd: list[str]) -> str:
         return ""
 
 
+def clean_env() -> dict:
+    """This app's environment, minus the settings a packed (PyInstaller) app passes on to programs it
+    starts. Without this, a program that is itself a packed app (like the new copy after an update)
+    thinks it belongs to this app and fails to start."""
+    env = {k: v for k, v in os.environ.items() if not (k.startswith("_PYI_") or k.startswith("_MEIPASS"))}
+    env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+    return env
+
+
 def child_env() -> dict:
-    env = dict(os.environ)
+    env = clean_env()
     env["PYTHONUNBUFFERED"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
     # make sure ffmpeg from Homebrew etc. is found when launched from Finder
