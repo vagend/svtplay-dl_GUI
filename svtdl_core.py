@@ -287,6 +287,16 @@ def find_svtplay(user_path: str = "") -> Optional[list[str]]:
     found = _which("svtplay-dl")
     if found:
         return [found]
+    if IS_WINDOWS:
+        # winget unpacks svtplay-dl into its Packages folder and adds that folder to PATH, which
+        # programs only see after signing out and in again. Look there directly.
+        base = Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Packages"
+        try:
+            hits = sorted(base.glob("spaam.svtplay-dl_*/**/svtplay-dl.exe"), key=lambda f: f.stat().st_mtime)
+        except OSError:
+            hits = []
+        if hits:
+            return [str(hits[-1])]
     try:
         import importlib.util
         if importlib.util.find_spec("svtplay_dl") is not None:
