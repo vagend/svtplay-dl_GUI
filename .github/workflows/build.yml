@@ -59,10 +59,37 @@ jobs:
             "svtplay-dl GUI" dist/svtplay-dl-GUI-mac.dmg
           hdiutil verify dist/svtplay-dl-GUI-mac.dmg
 
-      - name: Zip (Windows)
+      - name: Zip and installer (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Compress-Archive -Path "dist/svtplay-dl GUI.exe" -DestinationPath dist/svtplay-dl-GUI-windows.zip
+        run: |
+          # the zip is what the app downloads to update itself
+          Compress-Archive -Path "dist/svtplay-dl GUI.exe" -DestinationPath dist/svtplay-dl-GUI-windows.zip
+          # the installer: per-user, Start menu, Settings > Apps entry with Uninstall
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
+          if (!(Test-Path $iscc)) { $iscc = (Get-Command iscc).Source }
+          $v = (Get-Content VERSION).Trim()
+          & $iscc "/DAppVersion=$v" "/DSourceExe=$PWD\dist\svtplay-dl GUI.exe" "/O$PWD\dist" packaging\windows-installer.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Check the installer (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $app = "$env:LOCALAPPDATA\Programs\svtplay-dl GUI"
+          $lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\svtplay-dl GUI.lnk"
+          Start-Process dist\svtplay-dl-GUI-windows-setup.exe -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait
+          if (!(Test-Path "$app\svtplay-dl GUI.exe")) { throw "app not installed" }
+          if (!(Test-Path $lnk)) { throw "no Start menu entry" }
+          $u = Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" | Where-Object DisplayName -eq "svtplay-dl GUI"
+          if (!$u) { throw "not listed under Apps" }
+          "Installed: $($u.DisplayName) $($u.DisplayVersion)"
+          Start-Process "$app\unins000.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait
+          Start-Sleep 3
+          if (Test-Path "$app\svtplay-dl GUI.exe") { throw "uninstall left the app behind" }
+          if (Test-Path $lnk) { throw "uninstall left the Start menu entry" }
+          "Uninstalled cleanly"
 
       - uses: actions/upload-artifact@v5
         with:
@@ -70,6 +97,7 @@ jobs:
           path: |
             dist/svtplay-dl-GUI-${{ matrix.label }}.zip
             dist/svtplay-dl-GUI-${{ matrix.label }}.dmg
+            dist/svtplay-dl-GUI-${{ matrix.label }}-setup.exe
           if-no-files-found: error
           retention-days: 3   # only needed until the release step; keeps storage use tiny
 
@@ -89,14 +117,14 @@ jobs:
         run: |
           VERSION=$(gh api "repos/$GH_REPO/contents/VERSION?ref=$GITHUB_SHA" --jq .content | base64 -d | tr -d '[:space:]')
           gh release delete latest --yes --cleanup-tag || true
-          gh release create latest out/*.zip out/*.dmg \
+          gh release create latest out/*.zip out/*.dmg out/*.exe \
             --target "$GITHUB_SHA" \
             --title "svtplay-dl GUI $VERSION (build ${{ github.run_number }})" \
             --latest \
             --notes "Built from ${GITHUB_SHA::7} on $(date -u '+%Y-%m-%d %H:%M') UTC.
 
           **Mac:** download svtplay-dl-GUI-mac.dmg and open it. In the window that appears, drag *svtplay-dl GUI* onto the Applications folder.
-          **Windows:** download svtplay-dl-GUI-windows.zip, open it, and drag *svtplay-dl GUI.exe* wherever you like (e.g. Documents), then double-click it.
-          (The Mac .zip is what the app uses to update itself.)
+          **Windows:** download svtplay-dl-GUI-windows-setup.exe and run it. It installs just for you (no admin needed), adds svtplay-dl GUI to the Start menu, and can be uninstalled from Settings > Apps.
+          (The .zip files are what the app uses to update itself.)
 
           The first time you open it, your computer warns that the app isn't from a known developer. See the README for the two clicks that get past this."

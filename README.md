@@ -25,11 +25,15 @@ The Mac app is built for Apple Silicon (M1 and later).
 
 ### Windows
 
-1. Download **svtplay-dl-GUI-windows.zip** from Releases and open it.
-2. Drag **svtplay-dl GUI.exe** somewhere to keep it, e.g. Documents. Right-click it and choose
-   **Pin to Start** or **Pin to taskbar** if you like.
-3. The first time only: Windows SmartScreen may say it protected your PC. Click **More info**, then
+1. Download **svtplay-dl-GUI-windows-setup.exe** from Releases and run it. It installs just for
+   you, so no admin password is needed, into your own Programs folder
+   (`%LOCALAPPDATA%\Programs\svtplay-dl GUI`), adds **svtplay-dl GUI** to the Start menu (so
+   typing its name finds it), and lists it under **Settings > Apps** with an Uninstall button.
+2. The first time only: Windows SmartScreen may say it protected your PC. Click **More info**, then
    **Run anyway**.
+
+Uninstalling removes the app, its Start-menu entry, and its settings and logs. svtplay-dl, ffmpeg
+and your downloaded videos are left alone.
 
 ### svtplay-dl and ffmpeg
 
