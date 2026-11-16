@@ -87,7 +87,7 @@ _ATTR_RE = re.compile(r'([\w:-]+)\s*=\s*("([^"]*)"|\'([^\']*)\')')
 
 
 def fetch_page_meta(url: str, timeout: float = 10) -> dict:
-    """Read og:title / og:image from the programme page. Best effort; {} on failure."""
+    """Read og:title / og:image from the program page. Best effort; {} on failure."""
     try:
         req = urllib.request.Request(url, headers={
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
@@ -266,7 +266,7 @@ WINGET_FLAGS = ["--id", WINGET_ID, "--exact", "--accept-source-agreements", "--d
 
 
 def winget_latest(winget: str) -> str:
-    """Newest svtplay-dl version in the winget catalogue."""
+    """Newest svtplay-dl version in the winget catalog."""
     r = subprocess.run([winget, "show", *WINGET_FLAGS], capture_output=True, text=True,
                        encoding="utf-8", errors="replace", timeout=90, **core._popen_flags())
     m = re.search(r"^\s*Version:\s*(\S+)", r.stdout or "", re.M)

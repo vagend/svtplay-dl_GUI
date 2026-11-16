@@ -3,8 +3,8 @@
 assets/icon.icns (Mac) and assets/icon.ico (Windows) used when building the app.
 
 The icon is a computer with a download arrow, in the blue and yellow of the Swedish flag: a nod
-to svtplay-dl's Swedish developer and the Swedish programmes it's mostly used for.
-Colours: the widely used digital stand-ins for the flag, blue #006AA7 (deepening towards
+to svtplay-dl's Swedish developer and the Swedish programs it's mostly used for.
+Colors: the widely used digital stand-ins for the flag, blue #006AA7 (deepening toward
 Pantone 301, #004B87) and yellow #FECC02.
 
 Renders the PNGs with headless Chrome via Playwright, then packs them with Pillow:
