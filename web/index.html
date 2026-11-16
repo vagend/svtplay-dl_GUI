@@ -468,6 +468,11 @@ function ask(text, yes = "OK", no = "Cancel") {
     $("#askDlg").classList.add("open"); $("#askYes").focus();
   });
 }
+// A message that stays until OK is clicked (for things the user must not miss).
+async function tell(text) {
+  $("#askNo").hidden = true;
+  try { await ask(text, "OK"); } finally { $("#askNo").hidden = false; }
+}
 function esc(s) { return String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 
 // ---------- polling ----------
@@ -590,15 +595,16 @@ function renderAppUpdate() {
   else { st.textContent = ""; st.className = "st"; }
   $("#a_update").hidden = !a.available || !!a.running;
   $("#a_check").disabled = !!(a.checking || a.running);
-  if (a.error && a.error !== renderAppUpdate.lastErr) toast(a.error);
+  if (a.error && a.error !== renderAppUpdate.lastErr) tell(a.error);
   renderAppUpdate.lastErr = a.error;
 }
 async function startAppUpdate() {
   const a = state.appUpdate || {};
+  document.querySelectorAll(".overlay.open").forEach(o => { if (o.id !== "offline" && o.id !== "askDlg") o.classList.remove("open"); });
   if (!await ask(`Update svtplay-dl GUI to ${a.latest}? It downloads the new version, then closes and reopens by itself.`, "Update and restart", "Not now")) return;
   const r = await api("/api/app_update", {});
-  if (!r.ok) return toast(r.message);
-  document.querySelectorAll(".overlay.open").forEach(o => { if (o.id !== "offline") o.classList.remove("open"); });
+  if (!r.ok) return tell(r.message);
+  toast("Downloading the update… the app will close and reopen by itself.");
   refresh();
 }
 function renderUpdate() {

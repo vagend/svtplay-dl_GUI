@@ -341,8 +341,10 @@ class AppUpdater:
             return {"ok": False, "message": "Wait for the downloads to finish (or stop them), then update."}
         target = app_bundle()
         if core.IS_MAC and "/AppTranslocation/" in str(target):
-            return {"ok": False, "message": "Move svtplay-dl GUI into your Applications folder first, "
-                                           "open it from there, then update."}
+            return {"ok": False, "message": "This copy of svtplay-dl GUI is running from a temporary place, because macOS "
+                                           "does that for apps opened straight from Downloads. Quit the app, drag "
+                                           "svtplay-dl GUI from Downloads into Applications, open it from there, and "
+                                           "then update. From then on, updates work by themselves."}
         self.state.update(running=True, percent=0, error="")
         threading.Thread(target=self._install, args=(target,), daemon=True).start()
         return {"ok": True}
