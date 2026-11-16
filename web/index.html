@@ -612,11 +612,17 @@ async function startAppUpdate() {
   toast("Downloading the update… the app will close and reopen by itself.");
   refresh();
 }
+function switchLabel() { return state.platform === "windows" ? "Install with winget" : "Install with Homebrew"; }
+function setButtonText(btn, text) {   // keep the button's icon, change its words
+  const t = [...btn.childNodes].find(n => n.nodeType === 3 && n.textContent.trim());
+  if (t) { if (t.textContent !== text) t.textContent = text; } else btn.append(text);
+}
 function renderUpdate() {
   const u = state.update || {};
   const pill = $("#updchip");
-  pill.hidden = !(u.available && !u.running);
-  $("#updtext").textContent = `Update svtplay-dl to ${u.latest}`;
+  const handMade = u.method === "manual" && state.platform !== "linux";
+  pill.hidden = !((u.available || handMade) && !u.running);
+  $("#updtext").textContent = handMade ? "Update svtplay-dl" : `Update svtplay-dl to ${u.latest}`;
   // settings row
   $("#v_inst").textContent = u.installed ? `${u.installed}` : (state.tools.checking ? "…" : "not found");
   const st = $("#v_status");
@@ -625,9 +631,11 @@ function renderUpdate() {
   else if (u.error) { st.textContent = u.error; st.className = "st err"; }
   else if (u.available) { st.textContent = `Version ${u.latest} is available (${METHOD[u.method] || u.method})`; st.className = "st new"; }
   else if (u.latest) { st.textContent = `Up to date (${METHOD[u.method] || u.method})`; st.className = "st"; }
-  else if (u.method === "manual") { st.textContent = isWin() ? "Installed by hand. Install with winget to update from here" : "Installed by hand: update it from svtplay-dl.se"; st.className = "st"; }
+  else if (u.method === "manual") { st.textContent = state.platform === "linux" ? "Installed by hand" : `Installed by hand, so it can't update itself. Click “${switchLabel()}” to get the current version`; st.className = "st new"; }
   else { st.textContent = ""; st.className = "st"; }
-  $("#v_update").hidden = !(u.available || (u.error && ["brew", "winget", "pip"].includes(u.method)));
+  const canSwitch = u.method === "manual" && state.platform !== "linux";
+  $("#v_update").hidden = !(u.available || canSwitch || (u.error && ["brew", "winget", "pip"].includes(u.method)));
+  setButtonText($("#v_update"), canSwitch ? switchLabel() : "Update");
   $("#v_update").disabled = !!u.running;
   $("#v_check").disabled = !!(u.checking || u.running);
   // live output while updating
