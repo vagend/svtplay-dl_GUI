@@ -644,6 +644,11 @@ def season_episode(url: str, title: str = "", description: str = "") -> tuple:
     if ep is None and title:
         n = _NUMBERED_NAME_RE.search(title)
         ep = int(n.group(1)) if n else None
+    if ep is None:
+        # SVT turns an episode called "6. Therese Alshammar" into the link …/agent-ish/6-therese-alshammar
+        last = unquote(urlparse(url).path).rstrip("/").rsplit("/", 1)[-1]
+        n = re.match(r"(\d{1,3})-[^\d]", last)
+        ep = int(n.group(1)) if n else None
     return (int(s.group(1)) if s else None), ep
 
 
