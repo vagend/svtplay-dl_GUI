@@ -594,6 +594,7 @@ function renderAppUpdate() {
   if (a.running) { st.textContent = `Downloading the update… ${a.percent ?? 0}%`; st.className = "st"; }
   else if (a.checking) { st.textContent = "Checking for updates…"; st.className = "st"; }
   else if (a.error) { st.textContent = a.error; st.className = "st err"; }
+  else if (a.checkError) { st.textContent = a.checkError; st.className = "st err"; }
   else if (a.available) { st.textContent = `Version ${a.latest} is available`; st.className = "st new"; }
   else if (a.checkedAt) { st.textContent = "Up to date"; st.className = "st"; }
   else { st.textContent = ""; st.className = "st"; }

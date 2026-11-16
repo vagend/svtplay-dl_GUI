@@ -302,7 +302,7 @@ class AppUpdater:
         self.state = {"supported": bool(app_bundle() and APP_REPO and (core.IS_MAC or core.IS_WINDOWS)),
                       "current": f"{APP_VERSION} (build {APP_BUILD})" if APP_BUILD else APP_VERSION,
                       "latest": "", "available": False, "checking": False, "running": False,
-                      "percent": None, "error": "", "checkedAt": 0,
+                      "percent": None, "error": "", "checkError": "", "checkedAt": 0,
                       # the Mac app runs from outside Applications (e.g. straight from Downloads or the .dmg)
                       "notInApplications": bool(core.IS_MAC and app_bundle()
                                                 and not str(app_bundle()).startswith(("/Applications/",
@@ -315,7 +315,7 @@ class AppUpdater:
     def check(self) -> None:
         if not self.state["supported"] or self.state["checking"] or self.state["running"]:
             return
-        self.state.update(checking=True, error="")
+        self.state.update(checking=True, checkError="")
 
         def work():
             try:
@@ -329,7 +329,7 @@ class AppUpdater:
                     self.state.update(latest=f"{m.group(1)} (build {m.group(2)})",
                                       available=latest > (version_tuple(APP_VERSION), APP_BUILD))
             except Exception as e:  # noqa: BLE001
-                self.state["error"] = f"Couldn't check for app updates: {e}"
+                self.state["checkError"] = f"Couldn't check for app updates: {e}"
             finally:
                 self.state.update(checking=False, checkedAt=time.time())
         threading.Thread(target=work, daemon=True).start()
@@ -372,8 +372,13 @@ class AppUpdater:
                 shutil.move(str(target), str(old))         # a running app can be moved aside
                 try:
                     shutil.move(str(fresh), str(target))
-                except Exception:
-                    shutil.move(str(old), str(target))     # put the old one back
+                except Exception as e:
+                    try:
+                        shutil.move(str(old), str(target))     # put the old one back
+                    except Exception:
+                        raise RuntimeError(f"{e}. Your previous copy of the app is in {work}: "
+                                           f"drag old.app back into {target.parent} and rename it "
+                                           f"“{target.name}”.") from e
                     raise
                 relaunch = ["/usr/bin/open", "-n", "-a", str(target), "--args", "--after-update"]
             else:
@@ -773,8 +778,7 @@ class Item:
                 self.percent = 0
                 threading.Thread(target=self._move_to_share, daemon=True).start()
                 return
-            if not (ok or ((rc != 0 or self.had_error) and not getattr(self, "verbose_run", False)
-                           and any("svtplay-dl crashed" in l for l in self.log))):
+            if not ok:
                 self.drop_stage()
             if cancelled:
                 self.set("stopped")
@@ -809,7 +813,8 @@ class Item:
 
     def _move_to_share(self) -> None:
         staged, dest = self.stage_dir, Path(self.output_dir)
-        self.log.append(f"Copying the finished files to {dest} …")
+        with self.app.lock:
+            self.log.append(f"Copying the finished files to {dest} …")
         t0 = [time.time(), 0]
 
         def progress(done: int, total: int) -> None:
