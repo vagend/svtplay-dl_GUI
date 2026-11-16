@@ -592,8 +592,22 @@ class Updater:
         return {"ok": True}
 
 
-_SEASON_RE = re.compile(r"(?:season|sasong|säsong|sesong|saeson|sæson|kausi)[/_-]?(\d{1,4})", re.I)
-_EPISODE_RE = re.compile(r"(?:episode|avsnitt|episod|jakso|del)[/_-]?(\d{1,4})(?!\d)", re.I)
+_SEASON_RE = re.compile(r"(?:season|sasong|säsong|sesong|saeson|sæson|kausi)[\s/_.-]*(\d{1,4})(?!\d)", re.I)
+# "Avsnitt 3", "avsnitt-3", "Episode 3", "Del 3 av 8" (how SVT and others number episodes)
+_EPISODE_RE = re.compile(r"(?:episode|avsnitt|episod|jakso|afsnit|folge)[\s/_.-]*(\d{1,4})(?!\d)|\bdel\s+(\d{1,4})\s+av\s+\d",
+                         re.I)
+# an episode name that starts "3. " ("Bron – 3. Name" in a page title)
+_NUMBERED_NAME_RE = re.compile(r"(?:^|\s[–—-]\s)(\d{1,3})\.\s+\S")
+
+
+def order_episodes(episodes: list) -> None:
+    """Put the episodes in season/episode order and number them #1, #2 … in that order.
+    Only when every episode's number is known; otherwise keep svtplay-dl's order."""
+    if episodes and all(e.get("episode") is not None for e in episodes):
+        pos = {id(e): i for i, e in enumerate(episodes)}
+        episodes.sort(key=lambda e: (e.get("season") or 0, e["episode"], pos[id(e)]))
+    for n, e in enumerate(episodes, 1):
+        e["n"] = n
 
 
 def clean_site_title(t: str) -> str:
@@ -601,15 +615,21 @@ def clean_site_title(t: str) -> str:
                   "", t, flags=re.I).strip()
 
 
-def season_episode(url: str, title: str = "") -> tuple:
-    """Best guess at (season, episode) from an episode's link or title; None where unknown."""
-    text = unquote(urlparse(url).path) + " " + (title or "")
-    s = _SEASON_RE.search(text)
-    e = _EPISODE_RE.search(text)
+def season_episode(url: str, title: str = "", description: str = "") -> tuple:
+    """Best guess at (season, episode) from an episode's link, title or description; None where unknown.
+    Follows the places svtplay-dl itself looks: "Avsnitt 3" or "3. Name" in the title,
+    "Del 3 av 8" in the description, "säsong 2" in the link."""
+    text = unquote(urlparse(url).path) + " " + (title or "") + " " + (description or "")
     m = re.search(r"\bS(\d{1,4})\s*E(\d{1,4})\b", text, re.I)
     if m:
         return int(m.group(1)), int(m.group(2))
-    return (int(s.group(1)) if s else None), (int(e.group(1)) if e else None)
+    s = _SEASON_RE.search(text)
+    e = _EPISODE_RE.search(text)
+    ep = int(e.group(1) or e.group(2)) if e else None
+    if ep is None and title:
+        n = _NUMBERED_NAME_RE.search(title)
+        ep = int(n.group(1)) if n else None
+    return (int(s.group(1)) if s else None), ep
 
 
 def pretty_name(filename: str) -> str:
@@ -1078,28 +1098,35 @@ class App:
                     holder.episodes.append({"n": n, "url": u, "title": "", "thumb": "", "season": se,
                                             "episode": ep, "inList": u in existing})
                 holder.log = ["(episode search)"] + log
+                order_episodes(holder.episodes)
                 holder.set("picking", f"{len(found)} episodes found")
                 self._fetch_episode_meta(holder)
         threading.Thread(target=work, daemon=True).start()
 
     def _fetch_episode_meta(self, holder: Item) -> None:
         """Fill in episode titles and thumbnails for the picker, a few at a time."""
+        left = [len(holder.episodes[:400])]
+
         def one(ep: dict) -> None:
+            meta = {}
             with self.meta_slots:
-                if holder not in self.items or holder.status != "picking":
-                    return
-                meta = fetch_page_meta(ep["url"])
+                if holder in self.items and holder.status == "picking":
+                    meta = fetch_page_meta(ep["url"])
             with self.lock:
                 if meta.get("title"):
                     ep["title"] = clean_site_title(meta["title"])
+                if meta.get("title") or meta.get("description"):
                     if ep["season"] is None or ep["episode"] is None:
-                        se, epn = season_episode(ep["url"], ep["title"])
+                        se, epn = season_episode(ep["url"], ep.get("title", ""), meta.get("description", ""))
                         ep["season"] = ep["season"] if ep["season"] is not None else se
                         ep["episode"] = ep["episode"] if ep["episode"] is not None else epn
                 if meta.get("image"):
                     ep["thumb"] = meta["image"]
                     if not holder.thumb:
                         holder.thumb = meta["image"]
+                left[0] -= 1
+                if left[0] == 0 and holder.status == "picking":
+                    order_episodes(holder.episodes)
         for ep in holder.episodes[:400]:
             threading.Thread(target=one, args=(ep,), daemon=True).start()
 
