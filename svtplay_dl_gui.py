@@ -1069,11 +1069,23 @@ class App:
                 rc, events, log = core.run_collect(cmd, timeout=120)
             rows = core.parse_quality_table([e.text for e in events if e.kind == "info"])
             errs = [e.text for e in events if e.kind == "error"]
+            crash = ""
+            if not rows and any("svtplay-dl crashed" in l for l in log):
+                # svtplay-dl hides the reason unless it runs with --verbose, so ask once more that way
+                with self.fetch_slots:
+                    _rc, _ev, vlog = core.run_collect(cmd[:-1] + ["--verbose", cmd[-1]], timeout=120)
+                log = log + ["", "--- svtplay-dl crashed, so it was run again with --verbose for details ---",
+                             "$ " + " ".join(cmd[:-1] + ["--verbose", cmd[-1]]), ""] + vlog
+                lines = [l for l in vlog if re.match(r"^\w+(Error|Exception)\b.*:", l)]
+                crash = ("svtplay-dl crashed while checking this video: " + lines[-1]
+                         + " (click the log icon for details)") if lines else ""
             with self.lock:
                 it.rows = rows
                 if it.status == "fetching":
                     it.log = ["(quality check)"] + log
-                    if errs and not rows:
+                    if crash:
+                        it.set("new", crash, "error")
+                    elif errs and not rows:
                         it.set("new", errs[-1], "error")
                     else:
                         it.set("new", (f"{len(rows)} streams available" if len(rows) != 1 else "1 stream available") if rows else "")
