@@ -865,7 +865,7 @@ function updateCard(el, it) {
   else if (it.status === "error" || it.status === "stopped") { label = "Try again"; ic = "again"; }
   if (main.dataset.mode !== mode + ic) { main.className = "icon-btn " + mode; main.innerHTML = icon(ic); main.dataset.mode = mode + ic; }
   main.title = label;
-  main.disabled = it.status === "fetching" || it.status === "expanding";
+  main.disabled = it.status === "expanding";
   const rv = el.querySelector('[data-act="reveal"]');
   rv.hidden = !(it.status === "done" || it.status === "skipped");
   rv.title = "Show in " + fileManager();

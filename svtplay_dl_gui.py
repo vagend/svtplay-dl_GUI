@@ -60,7 +60,7 @@ if FROZEN:
         pass
 WINDOW = None   # the app's window when it runs as an app (pywebview), else None
 ACTIVE = {"starting", "downloading", "merging", "moving"}
-STARTABLE = {"new", "error", "stopped"}
+STARTABLE = {"new", "error", "stopped", "fetching"}   # (no need to wait for the list of qualities)
 STATUS_TEXT = {
     "new": "Ready",
     "fetching": "Checking available qualities…",
