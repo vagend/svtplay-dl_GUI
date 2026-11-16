@@ -581,6 +581,10 @@ function renderNet() {
 const METHOD = { brew: "Homebrew", winget: "winget", pip: "pip", manual: "installed by hand", none: "" };
 function renderAppUpdate() {
   const a = state.appUpdate || {};
+  if (a.notInApplications && !renderAppUpdate.warned) {
+    renderAppUpdate.warned = true;
+    tell("svtplay-dl GUI isn't in your Applications folder, so it can't update itself. Quit it, drag it into Applications (the window that opens with the .dmg has an arrow showing where), and open it from there.");
+  }
   $("#a_label").hidden = $("#a_row").hidden = !a.supported;
   $("#appchip").hidden = !(a.supported && (a.available || a.running));
   $("#apptext").textContent = a.running ? `Updating app… ${a.percent ?? 0}%` : `Update app to ${a.latest}`;

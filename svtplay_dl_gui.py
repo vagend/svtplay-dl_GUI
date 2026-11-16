@@ -302,7 +302,11 @@ class AppUpdater:
         self.state = {"supported": bool(app_bundle() and APP_REPO and (core.IS_MAC or core.IS_WINDOWS)),
                       "current": f"{APP_VERSION} (build {APP_BUILD})" if APP_BUILD else APP_VERSION,
                       "latest": "", "available": False, "checking": False, "running": False,
-                      "percent": None, "error": "", "checkedAt": 0}
+                      "percent": None, "error": "", "checkedAt": 0,
+                      # the Mac app runs from outside Applications (e.g. straight from Downloads or the .dmg)
+                      "notInApplications": bool(core.IS_MAC and app_bundle()
+                                                and not str(app_bundle()).startswith(("/Applications/",
+                                                                                      str(Path.home() / "Applications") + "/")))}
         self.asset: dict = {}
 
     def snapshot(self) -> dict:

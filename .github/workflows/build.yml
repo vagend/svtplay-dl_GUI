@@ -47,11 +47,17 @@ jobs:
       - name: Build
         run: pyinstaller --noconfirm --clean svtplay-dl-gui.spec
 
-      - name: Zip (Mac)
+      - name: Zip and installer (Mac)
         if: runner.os == 'macOS'
         run: |
-          cd dist
-          ditto -c -k --sequesterRsrc --keepParent "svtplay-dl GUI.app" svtplay-dl-GUI-mac.zip
+          # the zip is what the app downloads to update itself
+          ditto -c -k --sequesterRsrc --keepParent "dist/svtplay-dl GUI.app" dist/svtplay-dl-GUI-mac.zip
+          # the .dmg opens a window with the app and an arrow to Applications
+          python -m pip install dmgbuild
+          tiffutil -cathidpicheck assets/dmg-background.png assets/dmg-background@2x.png -out dist/dmg-background.tiff
+          dmgbuild -s packaging/dmg_settings.py -D "app=dist/svtplay-dl GUI.app" -D background=dist/dmg-background.tiff \
+            "svtplay-dl GUI" dist/svtplay-dl-GUI-mac.dmg
+          hdiutil verify dist/svtplay-dl-GUI-mac.dmg
 
       - name: Zip (Windows)
         if: runner.os == 'Windows'
@@ -61,7 +67,9 @@ jobs:
       - uses: actions/upload-artifact@v5
         with:
           name: svtplay-dl-GUI-${{ matrix.label }}
-          path: dist/svtplay-dl-GUI-${{ matrix.label }}.zip
+          path: |
+            dist/svtplay-dl-GUI-${{ matrix.label }}.zip
+            dist/svtplay-dl-GUI-${{ matrix.label }}.dmg
           if-no-files-found: error
           retention-days: 3   # only needed until the release step; keeps storage use tiny
 
@@ -81,13 +89,14 @@ jobs:
         run: |
           VERSION=$(gh api "repos/$GH_REPO/contents/VERSION?ref=$GITHUB_SHA" --jq .content | base64 -d | tr -d '[:space:]')
           gh release delete latest --yes --cleanup-tag || true
-          gh release create latest out/*.zip \
+          gh release create latest out/*.zip out/*.dmg \
             --target "$GITHUB_SHA" \
             --title "svtplay-dl GUI $VERSION (build ${{ github.run_number }})" \
             --latest \
             --notes "Built from ${GITHUB_SHA::7} on $(date -u '+%Y-%m-%d %H:%M') UTC.
 
-          **Mac:** download svtplay-dl-GUI-mac.zip, open it, and drag *svtplay-dl GUI* into Applications.
+          **Mac:** download svtplay-dl-GUI-mac.dmg and open it. In the window that appears, drag *svtplay-dl GUI* onto the Applications folder.
           **Windows:** download svtplay-dl-GUI-windows.zip, open it, and drag *svtplay-dl GUI.exe* wherever you like (e.g. Documents), then double-click it.
+          (The Mac .zip is what the app uses to update itself.)
 
           The first time you open it, your computer warns that the app isn't from a known developer. See the README for the two clicks that get past this."

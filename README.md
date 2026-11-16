@@ -13,12 +13,15 @@ Every time the code is pushed to GitHub, GitHub builds both apps and puts them o
 
 ### Mac
 
-1. Download **svtplay-dl-GUI-mac.zip** from Releases and open it.
-2. Drag **svtplay-dl GUI** into **Applications**.
-3. The first time only: double-click it. macOS says it can't check the app for malware, because it
-   isn't signed with a paid Apple developer certificate. Click **Done**, then open
+1. Download **svtplay-dl-GUI-mac.dmg** from Releases and open it.
+2. A window opens with the app and your Applications folder. Drag **svtplay-dl GUI** onto
+   **Applications**. (It has to live there to be able to update itself; the app reminds you if it isn't.)
+3. The first time only: open it from Applications. macOS says it can't check the app for malware,
+   because it isn't signed with a paid Apple developer certificate. Click **Done**, then open
    **System Settings > Privacy & Security**, scroll down, and click **Open Anyway** next to
    "svtplay-dl GUI". Confirm with your password. From then on it opens normally.
+
+The Mac app is built for Apple Silicon (M1 and later).
 
 ### Windows
 
