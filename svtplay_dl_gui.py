@@ -600,6 +600,21 @@ _EPISODE_RE = re.compile(r"(?:episode|avsnitt|episod|jakso|afsnit|folge)[\s/_.-]
 _NUMBERED_NAME_RE = re.compile(r"(?:^|\s[–—-]\s)(\d{1,3})\.\s+\S")
 
 
+def is_show_page(url: str) -> bool:
+    """An SVT Play link to a show rather than to one video. svtplay-dl only downloads single
+    videos from /video, /klipp and /kanaler links ("This mode is not supported anymore"),
+    but it can list a show page's episodes, so such a link goes to the episode picker."""
+    try:
+        u = urlparse(url)
+    except ValueError:
+        return False
+    host = u.netloc.lower().split(":")[0]
+    if host not in ("www.svtplay.se", "svtplay.se"):
+        return False
+    path = u.path.rstrip("/")
+    return bool(path) and not path.startswith(("/video", "/klipp", "/kanaler"))
+
+
 def order_episodes(episodes: list) -> None:
     """Put the episodes in season/episode order and number them #1, #2 … in that order.
     Only when every episode's number is known; otherwise keep svtplay-dl's order."""
@@ -1018,7 +1033,7 @@ class App:
                     continue
                 existing.add(u)
                 added += 1
-                if series:
+                if series or is_show_page(u):
                     self._expand(u)
                 else:
                     self._add_item(u)
