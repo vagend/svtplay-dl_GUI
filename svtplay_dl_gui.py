@@ -494,12 +494,44 @@ class Updater:
         elif info["method"] == "none":
             return {"ok": False, "message": "svtplay-dl isn't installed, or wasn't found."}
         else:
-            how = ("Install it with winget instead (winget install spaam.svtplay-dl) and updates will work from here."
-                   if core.IS_WINDOWS else "Install it with Homebrew instead (brew install svtplay-dl) and updates "
-                   "will work from here.")
-            return {"ok": False, "message": "This copy of svtplay-dl was installed by hand, so it can't be updated "
-                                           "from here. " + how}
+            # installed by hand (e.g. an old zip): install a current copy with winget / Homebrew and use that one,
+            # so later updates work from here too
+            return self._switch_to_managed()
         return self._run_cmds([cmd], "update", info["method"])
+
+    def _switch_to_managed(self) -> dict:
+        if core.IS_WINDOWS:
+            winget = find_winget()
+            if not winget:
+                return {"ok": False, "message": "This copy of svtplay-dl was installed by hand. winget wasn't found to "
+                                               "install a current one: install “App Installer” from the Microsoft "
+                                               "Store, then try again."}
+            cmd = [winget, "install", "--id", WINGET_ID, "--exact", "--accept-source-agreements",
+                   "--accept-package-agreements", "--disable-interactivity", "--silent"]
+
+            def after():
+                base = Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Packages"
+                hits = sorted(base.glob("spaam.svtplay-dl_*/**/svtplay-dl.exe"), key=lambda f: f.stat().st_mtime)
+                return str(hits[-1]) if hits else ""
+            method = "winget"
+        elif core.IS_MAC:
+            brew = find_brew()
+            if not brew:
+                return {"ok": False, "message": "This copy of svtplay-dl was installed by hand. Homebrew wasn't found "
+                                               "to install a current one: install it from brew.sh, then try again."}
+            cmd = [brew, "install", "svtplay-dl"]
+
+            def after():
+                exe = Path(brew).parent / "svtplay-dl"
+                return str(exe) if exe.exists() else ""
+            method = "brew"
+        else:
+            return {"ok": False, "message": "This copy of svtplay-dl was installed by hand, so it can't be updated "
+                                           "from here."}
+        with self.app.lock:
+            old = (self.app.svtplay_cmd or [""])[0]
+        self.state["log_note"] = f"Replacing the hand-installed svtplay-dl ({old}) with one from {method}."
+        return self._run_cmds([cmd], "switch", method, after=after)
 
     def install(self) -> dict:
         """Install whatever is missing (svtplay-dl and/or ffmpeg) with Homebrew or winget."""
@@ -531,11 +563,12 @@ class Updater:
             return {"ok": False, "message": "Install svtplay-dl and ffmpeg with your package manager."}
         return self._run_cmds(cmds, "install", method)
 
-    def _run_cmds(self, cmds: list, mode: str, method: str) -> dict:
+    def _run_cmds(self, cmds: list, mode: str, method: str, after=None) -> dict:
         env = core.child_env()
         env.update(HOMEBREW_NO_ENV_HINTS="1", NONINTERACTIVE="1", HOMEBREW_NO_INSTALL_CLEANUP="1",
                    PIP_DISABLE_PIP_VERSION_CHECK="1")
-        self.state.update(running=True, mode=mode, result="", error="", log=[])
+        note = self.state.pop("log_note", "")
+        self.state.update(running=True, mode=mode, result="", error="", log=[note, ""] if note else [])
 
         def work():
             ok = True
@@ -559,6 +592,20 @@ class Updater:
                     self.state["log"].append(f"Couldn't start it: {e}")
                 self.state["log"].append("")
             before = self.state.get("installed", "")
+            if after is not None:   # (winget says "already installed" with an error code; what counts is the file)
+                try:
+                    new_exe = after()
+                except Exception as e:  # noqa: BLE001
+                    new_exe = ""
+                    self.state["log"].append(f"Couldn't find the new svtplay-dl: {e}")
+                if new_exe:
+                    ok = True
+                    with self.app.lock:   # use the new copy from now on, whatever else is on PATH
+                        self.app.settings.svtplay_path = new_exe
+                        self.app.settings.save()
+                    self.state["log"].append(f"svtplay-dl GUI now uses {new_exe}")
+                else:
+                    ok = False
             self.app.check_tools()
             for _ in range(150):
                 time.sleep(0.2)
@@ -578,6 +625,11 @@ class Updater:
                                             + (" (on Windows, quitting and reopening the app can help)."
                                                if core.IS_WINDOWS else "."))
                     ok = False
+            elif mode == "switch":
+                source = {"brew": "Homebrew", "winget": "winget"}.get(method, method)
+                self.state["result"] = (f"svtplay-dl GUI now uses svtplay-dl {now} from {source}. Updates work from "
+                                        f"here from now on." if ok else
+                                        f"Installing svtplay-dl with {source} didn't work. See the output above.")
             elif ok and now and now != before:
                 self.state["result"] = f"Updated svtplay-dl from {before} to {now}."
             elif ok:
