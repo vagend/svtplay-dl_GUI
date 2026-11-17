@@ -104,3 +104,8 @@ them and quit. The power button at the top right does the same.
   `python3 svtplay_dl_gui.py`. Without pywebview it opens in your browser instead.
 
 `check_mac_setup.command` is a read-only check of Python, svtplay-dl and ffmpeg on a Mac.
+
+## License
+
+MIT, see [LICENSE](LICENSE). svtplay-dl and ffmpeg are separate programs with
+their own licenses; this app runs them but doesn't include their code.
