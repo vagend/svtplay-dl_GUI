@@ -110,16 +110,24 @@ def find_show(d: dict, url: str) -> Optional[dict]:
     return None
 
 
-def follow(url: str, title: str, thumb: str, episode_urls: list) -> None:
+def follow(url: str, title: str, thumb: str, episode_urls: list, folder: str = "") -> None:
     def fn(d):
         s = find_show(d, url)
         if s is None:
             s = {"url": url, "title": title, "thumb": thumb, "seen": [], "added": time.time(),
-                 "lastChecked": 0, "lastNew": 0, "failures": {}}
+                 "lastChecked": 0, "lastNew": 0, "failures": {}, "folder": folder}
             d["shows"].append(s)
         s["title"] = title or s.get("title") or url
         s["thumb"] = thumb or s.get("thumb", "")
         s["seen"] = sorted(set(s.get("seen", [])) | set(episode_urls))
+    update(fn)
+
+
+def set_folder(url: str, folder: str) -> None:
+    def fn(d):
+        s = find_show(d, url)
+        if s is not None:
+            s["folder"] = folder
     update(fn)
 
 

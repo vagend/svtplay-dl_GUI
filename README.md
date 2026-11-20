@@ -72,8 +72,11 @@ The app can download new episodes of a show by itself, for example every morning
    pick the days and the time, and click **Save schedule**.
 
 At that time your computer starts the app without a window. It downloads any episodes that
-weren't there when you followed the show, then quits. It uses the folder, quality, subtitles and
-format set at the bottom of the window. Nothing is left running in between.
+weren't there when you followed the show, then quits. Nothing is left running in between.
+
+**Each show has its own folder.** It starts as the Save-to folder you had when you followed it.
+To change it, click the folder under the show's name in the clock window. Quality, subtitles and
+format come from the settings at the bottom of the window.
 
 - The schedule is your computer's own. On a Mac it's a launchd job: macOS shows a notification
   that svtplay-dl GUI added a background item, and lists it under System Settings > General >
@@ -83,8 +86,8 @@ format set at the bottom of the window. Nothing is left running in between.
 - **Windows:** if the PC is off or asleep, the check runs as soon as it's back on and you're signed in.
 - The clock button's window lists the shows you follow, the last few checks and what they
   downloaded. **Check now** runs a check straight away, and **Show log** has the details.
-- If the download folder is a network folder that isn't connected, the check stops and tries
-  again next time. An episode that fails five checks in a row is skipped from then on.
+- If a show's folder is a network folder that isn't connected, that show is skipped and tried
+  again next time; the other shows still download. An episode that fails five checks in a row is skipped from then on.
 - **Before deleting the app on a Mac**, turn the schedule off in the clock window. On Windows,
   uninstalling removes the task.
 

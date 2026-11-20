@@ -12,6 +12,7 @@ Run:  python3 svtplay_dl_gui.py          (or double-click run_gui.command on a M
 
 from __future__ import annotations
 
+import dataclasses
 import html
 import json
 import os
@@ -1283,7 +1284,7 @@ class App:
                 # Every episode there is now counts as seen: from here on only new ones are downloaded.
                 try:
                     follow.follow(getattr(holder, "show_url", "") or holder.url, holder.page_title or holder.title,
-                                  holder.thumb, [ep["url"] for ep in holder.episodes])
+                                  holder.thumb, [ep["url"] for ep in holder.episodes], self.settings.output_dir)
                 except OSError as e:
                     return {"ok": False, "message": f"Couldn't save the followed show: {e}"}
             idx = self.items.index(holder)
@@ -1314,7 +1315,8 @@ class App:
         return {
             "shows": [{"url": x.get("url"), "title": x.get("title") or x.get("url"), "thumb": x.get("thumb", ""),
                        "seen": len(x.get("seen") or []), "lastChecked": x.get("lastChecked", 0),
-                       "lastNew": x.get("lastNew", 0), "lastError": x.get("lastError", "")}
+                       "lastNew": x.get("lastNew", 0), "lastError": x.get("lastError", ""),
+                       "folder": x.get("folder") or self.settings.output_dir}
                       for x in d["shows"]],
             "schedule": sched,
             "runs": (d.get("runs") or [])[-8:][::-1],
@@ -1382,6 +1384,15 @@ class App:
         if name == "follow_schedule":
             return follow.set_schedule(bool(data.get("enabled")), str(data.get("time", "07:00")),
                                        list(data.get("days") or []))
+        if name == "follow_folder":   # (a native dialog: not under the lock)
+            url = str(data.get("url", ""))
+            show = follow.find_show(follow.load(), url)
+            if show is None:
+                return {"ok": False, "message": "That show isn't followed any more."}
+            folder = choose_folder(show.get("folder") or self.settings.output_dir)
+            if folder:
+                follow.set_folder(url, folder)
+            return {"ok": True, "folder": folder}
         if name == "follow_remove":
             follow.unfollow(str(data.get("url", "")))
             return {"ok": True}
@@ -1851,13 +1862,12 @@ def run_scheduled(trigger: str) -> int:
         cmd = core.find_svtplay(settings.svtplay_path)
         if not cmd:
             raise RuntimeError("svtplay-dl was not found. Open the app and check Settings.")
-        if not Path(settings.output_dir).expanduser().is_dir():
-            # e.g. a network folder that isn't connected right now: try again at the next check
-            raise RuntimeError(f"The download folder isn't available: {settings.output_dir}")
         app = ScheduledApp(settings, cmd)
         shutil.rmtree(app.stage_root, ignore_errors=True)   # left over from a run that was cut off
         for show in follow.load()["shows"]:
             url, title = show["url"], show.get("title") or show["url"]
+            folder = show.get("folder") or settings.output_dir
+            app.settings = dataclasses.replace(settings, output_dir=folder)   # this show's own folder
             follow.set_run_status(f"Checking {title}")
             say(f"{title}: looking for episodes ({url})")
             found, err, log = find_episodes(cmd, settings, url)
@@ -1880,6 +1890,13 @@ def run_scheduled(trigger: str) -> int:
                 note(lambda s: s.update(lastChecked=time.time(), lastError=err))
                 continue
             say(f"{title}: {len(found)} episodes, {len(new)} new")
+            if new and not Path(folder).expanduser().is_dir():
+                # e.g. a network folder that isn't connected right now: try again at the next check
+                err = f"The download folder isn't available: {folder}"
+                say(f"{title}: {err}")
+                run["errors"].append(f"{title}: {err}")
+                note(lambda s: s.update(lastChecked=time.time(), lastError=err))
+                continue
             note(lambda s: s.update(lastChecked=time.time(), lastError=""))
             for ep_url in new[:follow.MAX_PER_SHOW]:
                 follow.set_run_status(f"Downloading {title}")
@@ -1904,7 +1921,9 @@ def run_scheduled(trigger: str) -> int:
                 else:
                     msg = it.note or f"didn't finish ({it.status})"
                     if "folder isn't available" in msg:   # not this episode's fault: try it next time
-                        raise RuntimeError(msg)
+                        say(f"{title}: {msg}")
+                        run["errors"].append(f"{title}: {msg}")
+                        break
                     say(f"{title}: failed: {msg}")
                     run["errors"].append(f"{title}: {msg}")
 

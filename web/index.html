@@ -122,6 +122,12 @@ main { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent;
 .frow .ft b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .frow .ft small { color: var(--muted); font-size: 12px; }
 .frow .ft small.bad { color: var(--danger); }
+.frow .ff { display: flex; align-items: center; gap: 6px; margin-top: 4px; min-width: 0; }
+.frow .ff button { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; height: 26px; padding: 0 10px;
+  border-radius: 999px; border: 1px solid var(--border-strong); background: var(--surface); font-size: 12px; cursor: pointer; }
+.frow .ff button:hover { border-color: var(--accent); }
+.frow .ff span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.frow .ff .i { width: 14px; height: 14px; flex: none; }
 .fempty { padding: 16px; color: var(--muted); font-size: 13px; text-align: center; }
 .fruns { font-size: 12.5px; }
 .fruns div { padding: 5px 2px; border-bottom: 1px solid var(--border); color: var(--muted); }
@@ -439,7 +445,7 @@ pre.log { margin: 0; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monosp
       </div>
       <div class="seasons" id="pSeasons"></div>
       <div class="plist" id="pList"></div>
-      <label class="check pfollow"><input type="checkbox" id="pFollow"><span>Follow this show<small>Download new episodes automatically on a schedule (set it with the clock button at the top)</small></span></label>
+      <label class="check pfollow"><input type="checkbox" id="pFollow"><span>Follow this show<small>Download new episodes automatically on a schedule. They're saved to the current Save-to folder; change it for this show with the clock button at the top.</small></span></label>
     </div>
     <div class="foot"><span class="pcount" id="pCount"></span>
       <button class="btn" data-close>Later</button>
@@ -453,8 +459,9 @@ pre.log { margin: 0; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monosp
   <div class="modal" style="width:min(680px,100%)">
     <header><h3>Automatic downloads</h3><button class="icon-btn" data-close><svg class="i"><use href="#i-x"/></svg></button></header>
     <div class="content">
-      <p class="fnote" style="margin-top:0">New episodes of the shows you follow are downloaded on a schedule, to the folder and
-        with the quality, subtitles and format chosen at the bottom of the window. This app doesn't need to be open.</p>
+      <p class="fnote" style="margin-top:0">New episodes of the shows you follow are downloaded on a schedule, each show to its own
+        folder (click a folder to change it), with the quality, subtitles and format chosen at the bottom of the window.
+        This app doesn't need to be open.</p>
       <div class="fsec">Schedule</div>
       <div class="fsched" id="f_sched">
         <label class="switch"><input type="checkbox" id="f_on"> Check for new episodes</label>
@@ -1112,7 +1119,8 @@ function renderFollow(force) {
     <div class="frow"><div class="pt" style="${x.thumb ? `background-image:url('${esc(x.thumb)}')` : ""}"></div>
       <div class="ft"><b title="${esc(x.url)}">${esc(x.title)}</b>
         ${x.lastError ? `<small class="bad">Last check failed: ${esc(x.lastError)}</small>`
-                      : `<small>Checked ${ago(x.lastChecked)} · last new episode ${x.lastNew ? ago(x.lastNew) : "not yet"}</small>`}</div>
+                      : `<small>Checked ${ago(x.lastChecked)} · last new episode ${x.lastNew ? ago(x.lastNew) : "not yet"}</small>`}
+        <div class="ff"><button data-ffolder="${esc(x.url)}" title="Where new episodes of this show are saved. Click to change."><svg class="i"><use href="#i-folder"/></svg><span>&lrm;${esc(x.folder)}&lrm;</span></button></div></div>
       <button class="btn ghost" data-unfollow="${esc(x.url)}">Stop following</button></div>`).join("")
     : `<div class="fempty">You aren't following any shows. Paste a show's link above, then tick <b>Follow this show</b> in the episode list that opens.</div>`;
   $("#f_runs").innerHTML = f.runs.length ? f.runs.map(r => {
@@ -1137,6 +1145,13 @@ $("#f_save").onclick = async () => {
   toast(fdraft.on ? "Schedule saved" : "Automatic downloads are off");
 };
 $("#f_list").onclick = async e => {
+  const fb = e.target.closest("[data-ffolder]");
+  if (fb) {
+    const r = await api("/api/follow_folder", { url: fb.dataset.ffolder });
+    if (!r.ok) return toast(r.message);
+    if (r.folder) toast("New episodes of this show will be saved to " + r.folder);
+    await refresh(); return renderFollow(true);
+  }
   const u = e.target.closest("[data-unfollow]"); if (!u) return;
   if (!await ask("Stop following this show? Episodes you've already downloaded are kept.", "Stop following")) return;
   await api("/api/follow_remove", { url: u.dataset.unfollow }); await refresh(); renderFollow(true);
