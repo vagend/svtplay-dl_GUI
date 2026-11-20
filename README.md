@@ -62,6 +62,32 @@ video over at the end. It copies to a temporary `.part` name and renames it when
 Plex never picks up half a file. If the share is busy or unreachable, it keeps trying for about
 30 seconds. If it still can't copy, the download is kept on this computer and the card says where.
 
+## Automatic downloads (follow a show)
+
+The app can download new episodes of a show by itself, for example every morning.
+
+1. Paste the show's link. In the list of episodes that opens, tick **Follow this show**.
+   Tick any episodes you want now as well, then click the green button.
+2. Click the **clock button** at the top of the window. Turn on **Check for new episodes**,
+   pick the days and the time, and click **Save schedule**.
+
+At that time your computer starts the app without a window. It downloads any episodes that
+weren't there when you followed the show, then quits. It uses the folder, quality, subtitles and
+format set at the bottom of the window. Nothing is left running in between.
+
+- The schedule is your computer's own. On a Mac it's a launchd job: macOS shows a notification
+  that svtplay-dl GUI added a background item, and lists it under System Settings > General >
+  Login Items. On Windows it's a Task Scheduler task called "svtplay-dl GUI new episodes".
+- **Mac:** if the Mac is asleep at that time, the check runs when it wakes up. If it's shut down,
+  that check is skipped. A notification tells you what was downloaded.
+- **Windows:** if the PC is off or asleep, the check runs as soon as it's back on and you're signed in.
+- The clock button's window lists the shows you follow, the last few checks and what they
+  downloaded. **Check now** runs a check straight away, and **Show log** has the details.
+- If the download folder is a network folder that isn't connected, the check stops and tries
+  again next time. An episode that fails five checks in a row is skipped from then on.
+- **Before deleting the app on a Mac**, turn the schedule off in the clock window. On Windows,
+  uninstalling removes the task.
+
 ## Closing
 
 Close the window to quit. If downloads are running, the app asks first: keep downloading, or stop
@@ -80,6 +106,7 @@ them and quit. The power button at the top right does the same.
 - Location chip: shows which country your downloads appear to come from, e.g. through your VPN.
   Hover for details, click to check again. A browser-extension VPN doesn't cover downloads, so use
   the VPN's own app, or a proxy in Settings.
+- **Follow a show**: new episodes are downloaded automatically on a schedule (see above).
 - Settings: svtplay-dl location, file name pattern, subfolder per show, overwrite, thumbnail,
   .nfo files for Plex, proxy, extra arguments.
 

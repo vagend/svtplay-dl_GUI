@@ -50,6 +50,10 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 [Run]
 Filename: "{app}\svtplay-dl GUI.exe"; Description: "Open svtplay-dl GUI"; Flags: nowait postinstall skipifsilent
 
+[UninstallRun]
+; the "download new episodes" task, if automatic downloads were turned on
+Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN ""svtplay-dl GUI new episodes"" /F"; Flags: runhidden; RunOnceId: "DelScheduledTask"
+
 [UninstallDelete]
 ; the app's settings, logs and temporary files (svtplay-dl, ffmpeg and your downloads are left alone)
 Type: filesandordirs; Name: "{userappdata}\svtplay-dl-gui"

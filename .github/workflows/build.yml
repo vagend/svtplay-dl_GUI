@@ -47,6 +47,15 @@ jobs:
       - name: Build
         run: pyinstaller --noconfirm --clean svtplay-dl-gui.spec
 
+      - name: Test automatic downloads
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then
+            python ci/test_schedule.py "dist/svtplay-dl GUI.app/Contents/MacOS/svtplay-dl GUI"
+          else
+            python ci/test_schedule.py "dist/svtplay-dl GUI.exe"
+          fi
+
       - name: Zip and installer (Mac)
         if: runner.os == 'macOS'
         run: |
@@ -85,10 +94,17 @@ jobs:
           $u = Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" | Where-Object DisplayName -eq "svtplay-dl GUI"
           if (!$u) { throw "not listed under Apps" }
           "Installed: $($u.DisplayName) $($u.DisplayVersion)"
+          # turn on automatic downloads, so we can check the uninstaller removes the scheduled task
+          Start-Process "$app\svtplay-dl GUI.exe" -ArgumentList "--set-schedule","04:00" -Wait
+          schtasks /Query /TN "svtplay-dl GUI new episodes" | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "the installed app couldn't create its scheduled task" }
           Start-Process "$app\unins000.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait
           Start-Sleep 3
           if (Test-Path "$app\svtplay-dl GUI.exe") { throw "uninstall left the app behind" }
           if (Test-Path $lnk) { throw "uninstall left the Start menu entry" }
+          schtasks /Query /TN "svtplay-dl GUI new episodes" 2>$null | Out-Null
+          if ($LASTEXITCODE -eq 0) { throw "uninstall left the scheduled task" }
+          $global:LASTEXITCODE = 0
           "Uninstalled cleanly"
 
       - uses: actions/upload-artifact@v5

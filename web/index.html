@@ -96,6 +96,38 @@ main { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent;
   padding: 3px 6px; border-radius: 5px; border: 1px solid var(--border); background: var(--surface); }
 .prow .inlist { font-size: 11px; color: var(--warn); }
 .pcount { color: var(--muted); font-size: 13px; margin-right: auto; align-self: center; }
+.pfollow { padding: 2px 2px 0; align-self: flex-start; }
+/* ---------- automatic downloads ---------- */
+#followBtn { position: relative; }
+#followBtn.on { color: var(--accent-text); }
+.badge { position: absolute; top: 2px; right: 1px; min-width: 15px; height: 15px; padding: 0 4px; border-radius: 999px;
+  background: var(--accent); color: #fff; font: 700 10px/15px system-ui, sans-serif; text-align: center; }
+.fsec { margin: 16px 0 8px; font-size: 12px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.fsched { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--border);
+  border-radius: 10px; background: var(--surface-2); }
+.fsched .input { width: auto; height: 32px; }
+.days { display: inline-flex; gap: 4px; }
+.days button { height: 28px; min-width: 40px; padding: 0 8px; border-radius: 999px; border: 1px solid var(--border-strong);
+  background: var(--surface); font-size: 12px; cursor: pointer; }
+.days button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+.fsched.off .days, .fsched.off .attime { opacity: .45; pointer-events: none; }
+.fnote { font-size: 12.5px; color: var(--muted); margin: 8px 2px 0; }
+.fnote.bad { color: var(--danger); } .fnote.ok { color: var(--accent-text); }
+.flist { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.frow { display: grid; grid-template-columns: 72px 1fr auto; gap: 12px; align-items: center; padding: 8px 12px;
+  border-bottom: 1px solid var(--border); }
+.frow:last-child { border-bottom: 0; }
+.frow .pt { width: 72px; aspect-ratio: 16/9; border-radius: 5px; background: var(--track) center/cover no-repeat; }
+.frow .ft { min-width: 0; }
+.frow .ft b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.frow .ft small { color: var(--muted); font-size: 12px; }
+.frow .ft small.bad { color: var(--danger); }
+.fempty { padding: 16px; color: var(--muted); font-size: 13px; text-align: center; }
+.fruns { font-size: 12.5px; }
+.fruns div { padding: 5px 2px; border-bottom: 1px solid var(--border); color: var(--muted); }
+.fruns div:last-child { border-bottom: 0; }
+.fruns b { color: var(--text); font-weight: 600; }
+.fruns .bad { color: var(--danger); }
 .netchip .flag { font-size: 14px; line-height: 1; }
 .netchip.warn { background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
 .netchip.checking .flag { animation: spin 1s linear infinite; display: inline-block; }
@@ -269,6 +301,7 @@ pre.log { margin: 0; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monosp
   <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3A4 4 0 0 0 11 18.7l1-1"/></symbol>
   <symbol id="i-paste" viewBox="0 0 24 24"><rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 4V3h6v1"/><path d="M9 10h6M9 14h6"/></symbol>
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
   <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></symbol>
   <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 8v5M12 16.5v.01"/></symbol>
@@ -290,6 +323,7 @@ pre.log { margin: 0; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monosp
     <button class="chip updchip" id="updchip" hidden title="A newer svtplay-dl is available. Click to update."><svg class="i"><use href="#i-up"/></svg><span id="updtext">Update svtplay-dl</span></button>
     <button class="chip" id="toolchip"><span class="dot"></span><span id="tooltext">Checking svtplay-dl…</span></button>
     <button class="btn primary" id="installTools" hidden style="height:30px;font-size:12.5px"><svg class="i"><use href="#i-down"/></svg>Install</button>
+    <button class="icon-btn" id="followBtn" title="Automatic downloads: new episodes of shows you follow"><svg class="i"><use href="#i-clock"/></svg><span class="badge" id="followBadge" hidden></span></button>
     <button class="icon-btn" id="settingsBtn" title="Settings"><svg class="i"><use href="#i-gear"/></svg></button>
     <button class="icon-btn" id="quitBtn" title="Quit svtplay-dl GUI"><svg class="i"><use href="#i-power"/></svg></button>
   </div>
@@ -405,11 +439,42 @@ pre.log { margin: 0; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monosp
       </div>
       <div class="seasons" id="pSeasons"></div>
       <div class="plist" id="pList"></div>
+      <label class="check pfollow"><input type="checkbox" id="pFollow"><span>Follow this show<small>Download new episodes automatically on a schedule (set it with the clock button at the top)</small></span></label>
     </div>
     <div class="foot"><span class="pcount" id="pCount"></span>
       <button class="btn" data-close>Later</button>
       <button class="btn danger" id="pDiscard">Discard series</button>
       <button class="btn primary" id="pAdd">Add episodes</button></div>
+  </div>
+</div>
+
+<!-- automatic downloads -->
+<div class="overlay" id="followDlg">
+  <div class="modal" style="width:min(680px,100%)">
+    <header><h3>Automatic downloads</h3><button class="icon-btn" data-close><svg class="i"><use href="#i-x"/></svg></button></header>
+    <div class="content">
+      <p class="fnote" style="margin-top:0">New episodes of the shows you follow are downloaded on a schedule, to the folder and
+        with the quality, subtitles and format chosen at the bottom of the window. This app doesn't need to be open.</p>
+      <div class="fsec">Schedule</div>
+      <div class="fsched" id="f_sched">
+        <label class="switch"><input type="checkbox" id="f_on"> Check for new episodes</label>
+        <span class="days" id="f_days"></span>
+        <span class="attime">at <input class="input" type="time" id="f_time" value="07:00"></span>
+        <span class="spacer"></span>
+        <button class="btn primary" id="f_save" disabled>Save schedule</button>
+      </div>
+      <p class="fnote" id="f_status"></p>
+      <div class="fsec">Shows you follow</div>
+      <div class="flist" id="f_list"></div>
+      <div class="fsec">Recent checks</div>
+      <div class="fruns" id="f_runs"></div>
+    </div>
+    <div class="foot">
+      <button class="btn ghost" id="f_log">Show log</button>
+      <span class="spacer"></span>
+      <button class="btn" id="f_run"><svg class="i"><use href="#i-down"/></svg>Check now</button>
+      <button class="btn" data-close>Close</button>
+    </div>
   </div>
 </div>
 
@@ -512,6 +577,7 @@ function render() {
   renderNet();
   renderUpdate();
   renderAppUpdate();
+  renderFollow();
 
   // footer
   fillSelect($("#quality"), state.presets.quality.map(v => ({ value: v, label: v })), s.quality);
@@ -721,8 +787,9 @@ function renderPicker(rebuild) {
     b.classList.toggle("on", eps.length && eps.every(e => picker.sel.has(e.url))); });
   const n = picker.sel.size;
   $("#pCount").textContent = `${n} of ${it.episodes.length} selected`;
-  $("#pAdd").textContent = n === 1 ? "Add 1 episode" : `Add ${n} episodes`;
-  $("#pAdd").disabled = n === 0;
+  const fol = $("#pFollow").checked;
+  $("#pAdd").textContent = n === 0 && fol ? "Follow show" : (n === 1 ? "Add 1 episode" : `Add ${n} episodes`) + (fol ? " and follow" : "");
+  $("#pAdd").disabled = n === 0 && !fol;
 }
 function toggleRow(url, shift) {
   const it = pickItem(); if (!it) return;
@@ -776,10 +843,16 @@ $("#pRangeBtn").onclick = () => {
 $("#pRange").addEventListener("keydown", e => { if (e.key === "Enter") $("#pRangeBtn").click(); });
 $("#pReverse").onclick = () => { picker.reversed = !picker.reversed; renderPicker(true); };
 $("#pAdd").onclick = async () => {
-  const r = await api("/api/choose_episodes", { id: picker.id, urls: [...picker.sel] });
+  const fol = $("#pFollow").checked;
+  const r = await api("/api/choose_episodes", { id: picker.id, urls: [...picker.sel], follow: fol });
   if (!r.ok) return toast(r.message);
-  $("#pickDlg").classList.remove("open"); toast(`Added ${r.added} episode${r.added === 1 ? "" : "s"}`); refresh();
+  $("#pickDlg").classList.remove("open"); $("#pFollow").checked = false;
+  const added = r.added ? `Added ${r.added} episode${r.added === 1 ? "" : "s"}` : "";
+  toast(r.followed ? (added ? added + ". " : "") + "Following the show: new episodes will be downloaded automatically" : added);
+  await refresh();
+  if (r.followed && !(state.follow.schedule || {}).enabled) openFollow(true);
 };
+$("#pFollow").onchange = () => renderPicker();
 $("#pDiscard").onclick = async () => { await api("/api/remove", { id: picker.id }); $("#pickDlg").classList.remove("open"); refresh(); };
 
 function fillSelect(sel, options, value) {
@@ -980,6 +1053,103 @@ $("#s_save").onclick = async () => {
   const r = await api("/api/settings", { settings: out });
   if (!r.ok) return toast(r.message);
   closeDlg($("#s_save")); toast("Settings saved"); refresh();
+};
+
+// ---------- automatic downloads ----------
+const DAY_NAMES = [["mon","Mon"],["tue","Tue"],["wed","Wed"],["thu","Thu"],["fri","Fri"],["sat","Sat"],["sun","Sun"]];
+const fdraft = { on: false, time: "07:00", days: new Set(), dirty: false };
+function ago(ts) {
+  if (!ts) return "never";
+  const s = Date.now() / 1000 - ts;
+  if (s < 90) return "just now";
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  if (s < 86400) return `${Math.round(s / 3600)} h ago`;
+  const d = new Date(ts * 1000);
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) + " " + d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+}
+function draftFromState() {
+  const sc = (state.follow && state.follow.schedule) || {};
+  fdraft.on = !!sc.enabled; fdraft.time = sc.time || "07:00";
+  fdraft.days = new Set((sc.days && sc.days.length) ? sc.days : DAY_NAMES.map(d => d[0])); fdraft.dirty = false;
+}
+function openFollow(suggestOn) {
+  draftFromState();
+  if (suggestOn && !fdraft.on && state.follow.supported && !state.follow.problem) { fdraft.on = true; fdraft.dirty = true; }
+  openDlg("#followDlg"); renderFollow(true);
+}
+function renderFollow(force) {
+  const f = state.follow; if (!f) return;
+  const b = $("#followBadge"); b.hidden = !f.shows.length; b.textContent = f.shows.length;
+  $("#followBtn").classList.toggle("on", !!(f.schedule && f.schedule.enabled && f.shows.length));
+  if (!$("#followDlg").classList.contains("open")) return;
+  // schedule
+  $("#f_on").checked = fdraft.on; $("#f_sched").classList.toggle("off", !fdraft.on);
+  if (document.activeElement !== $("#f_time")) $("#f_time").value = fdraft.time;
+  const days = $("#f_days");
+  if (!days.childElementCount) days.innerHTML = DAY_NAMES.map(([k, l]) => `<button data-day="${k}">${l}</button>`).join("");
+  days.querySelectorAll("button").forEach(x => x.classList.toggle("on", fdraft.days.has(x.dataset.day)));
+  $("#f_save").disabled = !fdraft.dirty;
+  $("#f_save").textContent = fdraft.dirty && !fdraft.on && f.schedule.enabled ? "Turn off" : "Save schedule";
+  const st = $("#f_status"), run = f.running, mac = state.platform === "mac";
+  let txt = "", cls = "fnote";
+  if (!f.supported) { txt = "Scheduled downloads work on Mac and Windows."; cls += " bad"; }
+  else if (f.problem) { txt = f.problem; cls += " bad"; }
+  else if (run) { txt = "Checking now" + (run.now ? ": " + run.now : "") + "…"; cls += " ok"; }
+  else if (fdraft.dirty) txt = fdraft.on ? "Press Save schedule to turn it on." : "Press Turn off to stop the automatic downloads.";
+  else if (f.schedule.enabled) {
+    const dl = f.schedule.days && f.schedule.days.length ? f.schedule.days.map(d => DAY_NAMES.find(x => x[0] === d)[1]).join(", ") : "every day";
+    txt = `On: ${dl} at ${f.schedule.time}. ` + (mac ? "If your Mac is asleep then, it checks when it wakes up. If it's shut down, that check is skipped."
+                                                      : "If the PC is off or asleep then, it checks as soon as it's back on and you're signed in.");
+    if (!f.shows.length) txt += " You aren't following any shows yet.";
+  } else txt = "Off. Turn it on and pick a time to download new episodes automatically.";
+  st.textContent = txt; st.className = cls;
+  $("#f_run").disabled = !!run || !f.shows.length;
+  // shows
+  const key = JSON.stringify([f.shows, f.runs, !!run]);
+  if (!force && $("#f_list").dataset.key === key) return;
+  $("#f_list").dataset.key = key;
+  $("#f_list").innerHTML = f.shows.length ? f.shows.map(x => `
+    <div class="frow"><div class="pt" style="${x.thumb ? `background-image:url('${esc(x.thumb)}')` : ""}"></div>
+      <div class="ft"><b title="${esc(x.url)}">${esc(x.title)}</b>
+        ${x.lastError ? `<small class="bad">Last check failed: ${esc(x.lastError)}</small>`
+                      : `<small>Checked ${ago(x.lastChecked)} · last new episode ${x.lastNew ? ago(x.lastNew) : "not yet"}</small>`}</div>
+      <button class="btn ghost" data-unfollow="${esc(x.url)}">Stop following</button></div>`).join("")
+    : `<div class="fempty">You aren't following any shows. Paste a show's link above, then tick <b>Follow this show</b> in the episode list that opens.</div>`;
+  $("#f_runs").innerHTML = f.runs.length ? f.runs.map(r => {
+    const d = r.downloaded || [], e = r.errors || [];
+    const what = d.length ? `<b>${d.length} downloaded</b>: ${esc(d.map(x => x.file).join(", "))}` : "nothing new";
+    return `<div>${ago(r.start)} · ${r.trigger === "manual" ? "Check now" : "scheduled"} · ${what}${e.length ? ` · <span class="bad">${esc(e.join("; "))}</span>` : ""}</div>`;
+  }).join("") : `<div>No checks yet.</div>`;
+}
+$("#followBtn").onclick = () => openFollow(false);
+$("#f_on").onchange = () => { fdraft.on = $("#f_on").checked; fdraft.dirty = true; renderFollow(); };
+$("#f_time").oninput = () => { fdraft.time = $("#f_time").value || "07:00"; fdraft.dirty = true; renderFollow(); };
+$("#f_days").onclick = e => {
+  const k = e.target.dataset && e.target.dataset.day; if (!k) return;
+  if (fdraft.days.has(k)) { if (fdraft.days.size > 1) fdraft.days.delete(k); } else fdraft.days.add(k);
+  fdraft.dirty = true; renderFollow();
+};
+$("#f_save").onclick = async () => {
+  $("#f_save").disabled = true;
+  const r = await api("/api/follow_schedule", { enabled: fdraft.on, time: fdraft.time, days: [...fdraft.days] });
+  if (!r.ok) { $("#f_save").disabled = false; return tell(r.message); }
+  await refresh(); draftFromState(); renderFollow(true);
+  toast(fdraft.on ? "Schedule saved" : "Automatic downloads are off");
+};
+$("#f_list").onclick = async e => {
+  const u = e.target.closest("[data-unfollow]"); if (!u) return;
+  if (!await ask("Stop following this show? Episodes you've already downloaded are kept.", "Stop following")) return;
+  await api("/api/follow_remove", { url: u.dataset.unfollow }); await refresh(); renderFollow(true);
+};
+$("#f_run").onclick = async () => {
+  const r = await api("/api/follow_run", {});
+  if (!r.ok) return toast(r.message);
+  toast("Checking for new episodes…"); setTimeout(refresh, 800);
+};
+$("#f_log").onclick = async () => {
+  const r = await api("/api/follow_log", {});
+  $("#logTitle").textContent = "Automatic downloads log";
+  $("#logText").textContent = r.log.join("\n"); openDlg("#logDlg");
 };
 
 startPolling();

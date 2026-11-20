@@ -33,6 +33,7 @@ from urllib.parse import unquote, urljoin, urlparse
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import svtdl_core as core  # noqa: E402
+import svtdl_follow as follow  # noqa: E402
 
 # Inside the packaged app the page files are unpacked next to the code (PyInstaller's _MEIPASS).
 RES_DIR = Path(getattr(sys, "_MEIPASS", HERE))
@@ -830,6 +831,10 @@ class Item:
         if not cmd:
             self.set("error", "svtplay-dl was not found. Set its location in Settings.")
             return
+        if getattr(self.app, "scheduled", False) and not Path(s.output_dir).expanduser().is_dir():
+            # a network folder that isn't connected right now: don't make an empty local folder instead
+            self.set("error", f"The download folder isn't available: {s.output_dir}")
+            return
         try:
             Path(s.output_dir).expanduser().mkdir(parents=True, exist_ok=True)
         except OSError as e:
@@ -843,7 +848,8 @@ class Item:
         self.drop_stage()
         work_dir = self.output_dir
         if core.is_network_path(self.output_dir):
-            self.stage_dir = core.staging_root() / f"item-{self.id}-{int(time.time())}"
+            self.stage_dir = getattr(self.app, "stage_root", None) or core.staging_root()
+            self.stage_dir = self.stage_dir / f"item-{self.id}-{int(time.time())}"
             try:
                 self.stage_dir.mkdir(parents=True, exist_ok=True)
                 work_dir = str(self.stage_dir)
@@ -1016,6 +1022,7 @@ class App:
         self.check_network()
         self.updater.check()
         threading.Thread(target=self._net_timer, daemon=True).start()
+        threading.Thread(target=follow.repair, daemon=True).start()   # the app may have been moved
 
     # ----- where do downloads appear to come from? ------------------------
     def check_network(self) -> None:
@@ -1084,7 +1091,19 @@ class App:
                 "appWindow": WINDOW is not None,
                 "appVersion": self.app_updater.state["current"],
                 "appUpdate": self.app_updater.snapshot(),
+                "follow": self._follow_cache(),
             }
+
+    def _follow_cache(self) -> dict:
+        # the page asks for state twice a second: read the file again only when it has changed
+        try:
+            stamp = (follow.follows_path().stat().st_mtime, follow.run_lock_path().exists())
+        except OSError:
+            stamp = (0, follow.run_lock_path().exists())
+        cached = getattr(self, "_fcache", None)
+        if not cached or cached[0] != stamp or time.time() - cached[2] > 5:
+            self._fcache = (stamp, self.follow_state(), time.time())
+        return self._fcache[1]
 
     def busy(self) -> bool:
         """Is anything running that closing the window shouldn't interrupt?"""
@@ -1184,6 +1203,7 @@ class App:
 
     def _expand(self, url: str) -> None:
         holder = self._add_item(url, fetch=False)
+        holder.show_url = url
         if not self.svtplay_cmd:
             return
         holder.set("expanding")
@@ -1248,14 +1268,21 @@ class App:
         for ep in holder.episodes[:400]:
             threading.Thread(target=one, args=(ep,), daemon=True).start()
 
-    def choose_episodes(self, holder_id: int, urls: list) -> dict:
+    def choose_episodes(self, holder_id: int, urls: list, follow_show: bool = False) -> dict:
         with self.lock:
             holder = self.find(holder_id)
             if not holder or holder.status != "picking":
                 return {"ok": False, "message": "That series is no longer waiting for a choice."}
             wanted = [ep for ep in holder.episodes if ep["url"] in set(urls)]
-            if not wanted:
+            if not wanted and not follow_show:
                 return {"ok": False, "message": "No episodes were selected."}
+            if follow_show:
+                # Every episode there is now counts as seen: from here on only new ones are downloaded.
+                try:
+                    follow.follow(getattr(holder, "show_url", "") or holder.url, holder.page_title or holder.title,
+                                  holder.thumb, [ep["url"] for ep in holder.episodes])
+                except OSError as e:
+                    return {"ok": False, "message": f"Couldn't save the followed show: {e}"}
             idx = self.items.index(holder)
             self.items.remove(holder)
             existing = {x.url for x in self.items}
@@ -1274,7 +1301,38 @@ class App:
                     self._fetch_qualities(it)
                 new_items.append(it)
             self.items[idx:idx] = new_items
-            return {"ok": True, "added": len(new_items)}
+            return {"ok": True, "added": len(new_items), "followed": bool(follow_show)}
+
+    # ----- followed shows and the schedule ----------------------------------------------
+    def follow_state(self) -> dict:
+        d = follow.load()
+        run = follow.running()
+        sched = d.get("schedule") or {}
+        return {
+            "shows": [{"url": x.get("url"), "title": x.get("title") or x.get("url"), "thumb": x.get("thumb", ""),
+                       "seen": len(x.get("seen") or []), "lastChecked": x.get("lastChecked", 0),
+                       "lastNew": x.get("lastNew", 0), "lastError": x.get("lastError", "")}
+                      for x in d["shows"]],
+            "schedule": sched,
+            "runs": (d.get("runs") or [])[-8:][::-1],
+            "running": run,
+            "supported": follow.supported(),
+            "problem": follow.location_problem(),
+        }
+
+    def follow_run_now(self) -> dict:
+        if follow.running():
+            return {"ok": False, "message": "A check is already running."}
+        if not follow.load()["shows"]:
+            return {"ok": False, "message": "You aren't following any shows yet."}
+        cmd = follow.program_args() + ["--manual"]
+        try:
+            subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             env=core.clean_env(), close_fds=True,
+                             **({"creationflags": 0x08000000 | 0x00000200} if core.IS_WINDOWS else {"start_new_session": True}))
+        except OSError as e:
+            return {"ok": False, "message": f"Couldn't start the check: {e}"}
+        return {"ok": True}
 
     # ----- queue -------------------------------------------------------------
     def enqueue(self, it: Item) -> None:
@@ -1318,6 +1376,20 @@ class App:
             return {"ok": True}
         if name == "tools_install":
             return self.updater.install()
+        if name == "follow_schedule":
+            return follow.set_schedule(bool(data.get("enabled")), str(data.get("time", "07:00")),
+                                       list(data.get("days") or []))
+        if name == "follow_remove":
+            follow.unfollow(str(data.get("url", "")))
+            return {"ok": True}
+        if name == "follow_run":
+            return self.follow_run_now()
+        if name == "follow_log":
+            try:
+                lines = follow.log_path().read_text(encoding="utf-8", errors="replace").splitlines()[-400:]
+            except OSError:
+                lines = []
+            return {"ok": True, "log": lines or ["No scheduled check has run yet."]}
         if name == "quit_cancel":
             self.quit_ask = False
             return {"ok": True}
@@ -1363,7 +1435,8 @@ class App:
             elif name == "settings":
                 return self._save_settings(data.get("settings", {}))
             elif name == "choose_episodes":
-                result = self.choose_episodes(int(data.get("id", 0)), list(data.get("urls") or []))
+                result = self.choose_episodes(int(data.get("id", 0)), list(data.get("urls") or []),
+                                              bool(data.get("follow")))
                 self.pump()
                 return result
             elif name == "check_network":
@@ -1707,6 +1780,158 @@ def log_to_file() -> None:
         pass
 
 
+# ==========================================================================
+# Scheduled run: started by launchd / Task Scheduler with --run-scheduled. No window.
+# ==========================================================================
+
+class ScheduledApp:
+    """Just enough of App for Item to download one episode at a time without a window."""
+    scheduled = True
+
+    def __init__(self, settings: core.Settings, cmd: list[str]):
+        self.lock = threading.RLock()
+        self.settings = settings
+        self.svtplay_cmd = cmd
+        self.items: list = []
+        # its own temporary folder, which the window doesn't clear when it opens
+        self.stage_root = core.staging_root().parent / "scheduled"
+
+    def pump(self) -> None:
+        pass
+
+
+def find_episodes(cmd: list[str], settings: core.Settings, url: str) -> tuple[list[str], str, list[str]]:
+    """The show's episode links as svtplay-dl lists them, oldest first when the numbers are known."""
+    full = cmd + ["-A", "--get-url", "--get-only-episode-url"] + core.split_extra(settings.extra_args) + [url]
+    rc, events, log = core.run_collect(full, timeout=300)
+    found: list[str] = []
+    for e in events:
+        if e.kind == "url" and e.text not in found:
+            found.append(e.text)
+    errs = [e.text for e in events if e.kind == "error"]
+    if not found:
+        crash = [l for l in log if re.match(r"^\w+(Error|Exception)\b.*:", l)]
+        return [], (errs[-1] if errs else (crash[-1] if crash else f"svtplay-dl exited with code {rc}")), log
+    eps = [{"url": u, "season": None, "episode": None} for u in found]
+    for ep in eps:
+        ep["season"], ep["episode"] = season_episode(ep["url"])
+    order_episodes(eps)
+    if not all(e["episode"] is not None for e in eps):
+        eps.reverse()   # svtplay-dl lists the newest first
+    return [e["url"] for e in eps], "", log
+
+
+def run_scheduled(trigger: str) -> int:
+    """Download new episodes of every followed show, then quit."""
+    log_file = follow.log_path()
+    try:
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        if log_file.exists() and log_file.stat().st_size > 2_000_000:   # keep it small
+            log_file.replace(log_file.with_suffix(".old.log"))
+        out = open(log_file, "a", buffering=1, encoding="utf-8", errors="replace")
+    except OSError:
+        out = None
+
+    def say(text: str) -> None:
+        line = time.strftime("%Y-%m-%d %H:%M:%S ") + text
+        if out:
+            print(line, file=out)
+
+    if not follow.take_run_lock(trigger):
+        say("Another check is already running, so this one stops.")
+        return 0
+    started = time.time()
+    run = {"start": started, "end": 0, "trigger": trigger, "downloaded": [], "errors": [], "checked": 0}
+    say(f"--- Checking for new episodes ({trigger}), svtplay-dl GUI {APP_VERSION} ---")
+    try:
+        settings = core.Settings.load()
+        cmd = core.find_svtplay(settings.svtplay_path)
+        if not cmd:
+            raise RuntimeError("svtplay-dl was not found. Open the app and check Settings.")
+        if not Path(settings.output_dir).expanduser().is_dir():
+            # e.g. a network folder that isn't connected right now: try again at the next check
+            raise RuntimeError(f"The download folder isn't available: {settings.output_dir}")
+        app = ScheduledApp(settings, cmd)
+        shutil.rmtree(app.stage_root, ignore_errors=True)   # left over from a run that was cut off
+        for show in follow.load()["shows"]:
+            url, title = show["url"], show.get("title") or show["url"]
+            follow.set_run_status(f"Checking {title}")
+            say(f"{title}: looking for episodes ({url})")
+            found, err, log = find_episodes(cmd, settings, url)
+            run["checked"] += 1
+            seen = set(show.get("seen") or [])
+            new = [u for u in found if u not in seen]
+
+            def note(fn, url=url):
+                def change(d):
+                    s = follow.find_show(d, url)
+                    if s is not None:   # (it may have been unfollowed in the window meanwhile)
+                        fn(s)
+                follow.update(change)
+
+            if err:
+                say(f"{title}: couldn't list the episodes: {err}")
+                for l in log[-15:]:
+                    say("    " + l)
+                run["errors"].append(f"{title}: {err}")
+                note(lambda s: s.update(lastChecked=time.time(), lastError=err))
+                continue
+            say(f"{title}: {len(found)} episodes, {len(new)} new")
+            note(lambda s: s.update(lastChecked=time.time(), lastError=""))
+            for ep_url in new[:follow.MAX_PER_SHOW]:
+                follow.set_run_status(f"Downloading {title}")
+                it = Item(app, ep_url)
+                meta = fetch_page_meta(ep_url)
+                if meta.get("title"):
+                    it.page_title = clean_site_title(meta["title"])
+                say(f"{title}: downloading {it.page_title or ep_url}")
+                it.start()
+                while it.status in ACTIVE or it.status == "starting" or it.runner is not None:
+                    time.sleep(0.5)
+                for l in it.log:
+                    say("    " + l)
+                name = Path(it.output_name).name if it.output_name else (it.page_title or ep_url)
+                if it.status == "done":
+                    say(f"{title}: done: {name}")
+                    run["downloaded"].append({"show": title, "file": name})
+                    note(lambda s, u=ep_url: s.update(seen=sorted(set(s.get("seen", [])) | {u}), lastNew=time.time()))
+                elif it.status == "skipped":
+                    say(f"{title}: already there, skipped: {name}")
+                    note(lambda s, u=ep_url: s.update(seen=sorted(set(s.get("seen", [])) | {u})))
+                else:
+                    msg = it.note or f"didn't finish ({it.status})"
+                    if "folder isn't available" in msg:   # not this episode's fault: try it next time
+                        raise RuntimeError(msg)
+                    say(f"{title}: failed: {msg}")
+                    run["errors"].append(f"{title}: {msg}")
+
+                    def failed(s, u=ep_url):
+                        f = s.setdefault("failures", {})
+                        f[u] = f.get(u, 0) + 1
+                        if f[u] >= follow.GIVE_UP_AFTER:   # stop trying this one
+                            s["seen"] = sorted(set(s.get("seen", [])) | {u})
+                            f.pop(u, None)
+                    note(failed)
+    except Exception as e:  # noqa: BLE001
+        say(f"Stopped: {e}")
+        run["errors"].append(str(e))
+    finally:
+        run["end"] = time.time()
+        follow.update(lambda d: d.__setitem__("runs", (d.get("runs") or [])[-19:] + [run]))
+        follow.drop_run_lock()
+        n = len(run["downloaded"])
+        say(f"--- Finished: {n} downloaded, {len(run['errors'])} problems ---")
+        if n:
+            shows = sorted({x["show"] for x in run["downloaded"]})
+            follow.notify("svtplay-dl GUI", f"Downloaded {n} new episode{'s' if n != 1 else ''}: {', '.join(shows)}")
+        elif run["errors"]:
+            follow.notify("svtplay-dl GUI", "Checking for new episodes had a problem. Open the app for details.")
+        if out:
+            out.close()
+    return 0
+
+
+
 def main() -> None:
     global APP, SERVER, WINDOW
     import argparse
@@ -1715,10 +1940,21 @@ def main() -> None:
     ap.add_argument("--browser", action="store_true", help="use a browser window instead of the app window")
     ap.add_argument("--no-browser", action="store_true", help="don't open any window (for testing)")
     ap.add_argument("--after-update", action="store_true", help=argparse.SUPPRESS)
-    if getattr(sys, "frozen", False) or (sys.stdout is None):
-        log_to_file()
+    ap.add_argument("--run-scheduled", action="store_true", help="download new episodes of followed shows, then quit")
+    ap.add_argument("--manual", action="store_true", help=argparse.SUPPRESS)
+    ap.add_argument("--set-schedule", metavar="HH:MM|off", help=argparse.SUPPRESS)   # used by the build's tests
+    if (getattr(sys, "frozen", False) or (sys.stdout is None)) and not ({"--run-scheduled", "--set-schedule"} & set(sys.argv)):
+        log_to_file()   # (a scheduled run keeps its own log, and mustn't wipe the open window's)
         print("Started", APP_VERSION, sys.argv[1:])
     args, _unknown = ap.parse_known_args()   # macOS may add its own arguments when starting an app
+    if args.run_scheduled:
+        sys.exit(run_scheduled("manual" if args.manual else "schedule"))
+    if args.set_schedule:
+        off = args.set_schedule.lower() == "off"
+        res = follow.set_schedule(not off, "07:00" if off else args.set_schedule, [])
+        follow.data_dir().mkdir(parents=True, exist_ok=True)
+        (follow.data_dir() / "set-schedule-result.json").write_text(json.dumps(res), encoding="utf-8")
+        sys.exit(0 if res.get("ok") else 1)
 
     webview = None
     if not (args.browser or args.no_browser):
