@@ -1121,7 +1121,8 @@ function renderFollow(force) {
         ${x.lastError ? `<small class="bad">Last check failed: ${esc(x.lastError)}</small>`
                       : `<small>Checked ${ago(x.lastChecked)} · last new episode ${x.lastNew ? ago(x.lastNew) : "not yet"}</small>`}
         <div class="ff"><button data-ffolder="${esc(x.url)}" title="Where new episodes of this show are saved. Click to change."><svg class="i"><use href="#i-folder"/></svg><span>&lrm;${esc(x.folder)}&lrm;</span></button></div></div>
-      <button class="btn ghost" data-unfollow="${esc(x.url)}">Stop following</button></div>`).join("")
+      <span style="display:flex;gap:6px"><button class="btn" data-flatest="${esc(x.url)}" ${run ? "disabled" : ""} title="Download this show's newest episode now (skipped if it's already in the folder)">Get latest now</button>
+      <button class="btn ghost" data-unfollow="${esc(x.url)}">Stop following</button></span></div>`).join("")
     : `<div class="fempty">You aren't following any shows. Paste a show's link above, then tick <b>Follow this show</b> in the episode list that opens.</div>`;
   $("#f_runs").innerHTML = f.runs.length ? f.runs.map(r => {
     const d = r.downloaded || [], e = r.errors || [];
@@ -1151,6 +1152,12 @@ $("#f_list").onclick = async e => {
     if (!r.ok) return toast(r.message);
     if (r.folder) toast("New episodes of this show will be saved to " + r.folder);
     await refresh(); return renderFollow(true);
+  }
+  const lb = e.target.closest("[data-flatest]");
+  if (lb) {
+    const r = await api("/api/follow_latest", { url: lb.dataset.flatest });
+    if (!r.ok) return toast(r.message);
+    toast("Getting the newest episode…"); return setTimeout(refresh, 800);
   }
   const u = e.target.closest("[data-unfollow]"); if (!u) return;
   if (!await ask("Stop following this show? Episodes you've already downloaded are kept.", "Stop following")) return;

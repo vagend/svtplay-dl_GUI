@@ -1398,6 +1398,12 @@ class App:
             return {"ok": True}
         if name == "follow_run":
             return self.follow_run_now()
+        if name == "follow_latest":
+            if follow.running():
+                return {"ok": False, "message": "A check is running. Try again when it's finished."}
+            url = str(data.get("url", ""))
+            follow.update(lambda d: (follow.find_show(d, url) or {}).__setitem__("catchUp", 1))
+            return self.follow_run_now()
         if name == "follow_log":
             try:
                 lines = follow.log_path().read_text(encoding="utf-8", errors="replace").splitlines()[-400:]
@@ -1873,7 +1879,8 @@ def run_scheduled(trigger: str) -> int:
             found, err, log = find_episodes(cmd, settings, url)
             run["checked"] += 1
             seen = set(show.get("seen") or [])
-            new = [u for u in found if u not in seen]
+            latest = found[-int(show.get("catchUp") or 0):] if show.get("catchUp") else []   # "Get latest now"
+            new = [u for u in found if u not in seen or u in latest]
 
             def note(fn, url=url):
                 def change(d):
@@ -1897,7 +1904,7 @@ def run_scheduled(trigger: str) -> int:
                 run["errors"].append(f"{title}: {err}")
                 note(lambda s: s.update(lastChecked=time.time(), lastError=err))
                 continue
-            note(lambda s: s.update(lastChecked=time.time(), lastError=""))
+            note(lambda s: s.update(lastChecked=time.time(), lastError="", catchUp=0))
             for ep_url in new[:follow.MAX_PER_SHOW]:
                 follow.set_run_status(f"Downloading {title}")
                 it = Item(app, ep_url)
