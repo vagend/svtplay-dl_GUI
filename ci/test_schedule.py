@@ -6,7 +6,8 @@ Build check for automatic downloads, run on GitHub's Mac and Windows machines ag
 2. --set-schedule creates the real launchd job / Task Scheduler task, pointing at this app.
 3. Starting that job the way the computer would (launchctl kickstart / schtasks /Run) downloads
    the next new episode.
-4. --set-schedule off removes it again.
+4. A schedule set two minutes ahead really starts the app at that time, on its own.
+5. --set-schedule off removes it again.
 A fake svtplay-dl stands in for the real one, so nothing is fetched from SVT.
 """
 import json
@@ -113,7 +114,21 @@ check("(schedule)" in log, "the log shows a scheduled run")
 runs = follow.load()["runs"]
 check(runs and runs[-1]["downloaded"] and runs[-1]["downloaded"][0]["file"] == "avsnitt-3.mp4", f"last run: {runs[-1:]}")
 
-# 4. turn it off
+# 4. the real thing: a schedule two minutes ahead, then wait for the computer's clock to start it
+(out / "avsnitt-3.mp4").unlink()
+follow.update(lambda d: d["shows"][0].__setitem__("catchUp", 1))   # "Get latest at next check"
+runs_before = len(follow.load()["runs"])
+at = time.localtime(time.time() + 120)
+when = f"{at.tm_hour:02d}:{at.tm_min:02d}"
+r = subprocess.run([app, "--set-schedule", when], timeout=60)
+check(r.returncode == 0, f"schedule set for {when} (it's now {time.strftime('%H:%M:%S')})")
+check(wait_for(out / "avsnitt-3.mp4", 240), f"at {when} the computer started the app by itself and it got the latest episode")
+runs = follow.load()["runs"]
+check(len(runs) > runs_before and runs[-1]["trigger"] == "schedule", f"that run was the scheduled one: {runs[-1]}")
+check(not follow.load()["shows"][0].get("catchUp"), "Get latest at next check was used up")
+print(f"started at {time.strftime('%H:%M:%S', time.localtime(runs[-1]['start']))}")
+
+# 5. turn it off
 r = subprocess.run([app, "--set-schedule", "off"], timeout=60)
 check(r.returncode == 0 and follow.installed() is None, "--set-schedule off removed it")
 print("\nAll scheduled-download checks passed.")

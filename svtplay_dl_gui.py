@@ -1316,7 +1316,7 @@ class App:
             "shows": [{"url": x.get("url"), "title": x.get("title") or x.get("url"), "thumb": x.get("thumb", ""),
                        "seen": len(x.get("seen") or []), "lastChecked": x.get("lastChecked", 0),
                        "lastNew": x.get("lastNew", 0), "lastError": x.get("lastError", ""),
-                       "folder": x.get("folder") or self.settings.output_dir}
+                       "folder": x.get("folder") or self.settings.output_dir, "catchUp": bool(x.get("catchUp"))}
                       for x in d["shows"]],
             "schedule": sched,
             "runs": (d.get("runs") or [])[-8:][::-1],
@@ -1402,8 +1402,9 @@ class App:
             if follow.running():
                 return {"ok": False, "message": "A check is running. Try again when it's finished."}
             url = str(data.get("url", ""))
-            follow.update(lambda d: (follow.find_show(d, url) or {}).__setitem__("catchUp", 1))
-            return self.follow_run_now()
+            on = not (follow.find_show(follow.load(), url) or {}).get("catchUp")   # the button toggles
+            follow.update(lambda d: (follow.find_show(d, url) or {}).__setitem__("catchUp", 1 if on else 0))
+            return {"ok": True, "on": on}
         if name == "follow_log":
             try:
                 lines = follow.log_path().read_text(encoding="utf-8", errors="replace").splitlines()[-400:]

@@ -85,8 +85,11 @@ format come from the settings at the bottom of the window.
   that check is skipped. A notification tells you what was downloaded.
 - **Windows:** if the PC is off or asleep, the check runs as soon as it's back on and you're signed in.
 - Following a show counts every episode already out as seen, so checks only download episodes
-  published after that. To get the newest one that's already out (or to test the setup without
-  waiting for a new episode), click **Get latest now** next to the show.
+  published after that. To get the newest one that's already out, click **Get latest at next
+  check** next to the show; the next check downloads it.
+- **To test the schedule:** click **Get latest at next check**, set the schedule a few minutes
+  ahead, save it, and quit the app. At that time your computer starts it without a window and the
+  episode appears in the show's folder.
 - The clock button's window lists the shows you follow, the last few checks and what they
   downloaded. **Check now** runs a check straight away, and **Show log** has the details.
 - If a show's folder is a network folder that isn't connected, that show is skipped and tried
