@@ -113,7 +113,8 @@ them and quit. The power button at the top right does the same.
   Hover for details, click to check again. A browser-extension VPN doesn't cover downloads, so use
   the VPN's own app, or a proxy in Settings.
 - **Follow a show**: new episodes are downloaded automatically on a schedule (see above).
-- Settings: svtplay-dl location, file name pattern, subfolder per show, overwrite, thumbnail,
+- **Folder per show** switch at the bottom of the window: each show gets its own folder inside Save to.
+- Settings: svtplay-dl location, file name pattern, overwrite, thumbnail,
   .nfo files for Plex, proxy, extra arguments.
 
 ## How it's built

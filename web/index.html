@@ -233,6 +233,7 @@ main { flex: 1; overflow-y: auto; padding: 16px 24px 24px; }
 .select::after { content: ""; position: absolute; right: 11px; top: 50%; width: 6px; height: 6px; margin-top: -5px;
   border: solid var(--muted); border-width: 0 1.6px 1.6px 0; transform: rotate(45deg); pointer-events: none; }
 footer .select select { width: auto; min-width: 120px; }
+footer .subsw { height: 34px; font-size: 13px; white-space: nowrap; }
 .select select:disabled { opacity: .55; cursor: default; }
 
 .empty { height: 100%; display: grid; place-items: center; text-align: center; color: var(--muted); padding: 40px 0; }
@@ -366,6 +367,9 @@ pre.log { margin: 0; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monosp
   <div class="field"><span>Save to</span>
     <button class="folder" id="folderBtn" title=""><svg class="i"><use href="#i-folder"/></svg><b id="folderName">Downloads</b></button>
   </div>
+  <div class="field"><span>Folders</span>
+    <label class="switch subsw" title="Put each show's episodes in their own folder inside the Save-to folder, named after the show. Also used by automatic downloads."><input type="checkbox" id="subfolder"> Folder per show</label>
+  </div>
   <div class="field"><span>Quality</span><div class="select"><select id="quality"></select></div></div>
   <div class="field"><span>Subtitles</span><div class="select"><select id="subtitles"></select></div></div>
   <div class="field"><span>Format</span><div class="select"><select id="format"><option>mp4</option><option>mkv</option></select></div></div>
@@ -407,7 +411,6 @@ pre.log { margin: 0; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monosp
         <div class="help">Added to every svtplay-dl command.</div>
         <div class="checks">
           <label class="check"><input type="checkbox" id="s_fetch"><span>Check qualities when adding<small>Lets you pick an exact stream per video</small></span></label>
-          <label class="check"><input type="checkbox" id="s_subfolder"><span>Subfolder per show<small>Keeps series episodes together</small></span></label>
           <label class="check"><input type="checkbox" id="s_overwrite"><span>Overwrite existing files<small>Otherwise they're skipped</small></span></label>
           <label class="check"><input type="checkbox" id="s_thumb"><span>Save thumbnail image</span></label>
           <label class="check"><input type="checkbox" id="s_nfo"><span>Create .nfo files<small>For Plex, Kodi and Jellyfin</small></span></label>
@@ -592,6 +595,7 @@ function render() {
   if (document.activeElement !== $("#format")) $("#format").value = s.output_format;
   const parts = s.output_dir.split(/[\\/]/).filter(Boolean);
   $("#folderName").textContent = parts.length ? parts[parts.length - 1] : s.output_dir;
+  $("#subfolder").checked = !!s.subfolder;
   $("#folderBtn").title = s.output_dir + "\nClick to change";
   if (document.activeElement !== $("#series")) $("#series").checked = !!s.expand_series;
 
@@ -999,8 +1003,8 @@ addEventListener("drop", e => {
 });
 const saveQuick = () => api("/api/settings", { settings: {
   quality: $("#quality").value, subtitles: $("#subtitles").value, output_format: $("#format").value,
-  expand_series: $("#series").checked } }).then(refresh);
-["#quality", "#subtitles", "#format", "#series"].forEach(s => $(s).addEventListener("change", saveQuick));
+  expand_series: $("#series").checked, subfolder: $("#subfolder").checked } }).then(refresh);
+["#quality", "#subtitles", "#format", "#series", "#subfolder"].forEach(s => $(s).addEventListener("change", saveQuick));
 
 // ---------- footer ----------
 $("#allBtn").onclick = () => api("/api/download_all", {}).then(refresh);
@@ -1045,7 +1049,7 @@ addEventListener("keydown", e => { if (e.key === "Escape") { if (ask.cancel && $
 $("#logCopy").onclick = () => navigator.clipboard.writeText($("#logText").textContent).then(() => toast("Log copied"));
 
 const S = { s_path: "svtplay_path", s_parallel: "max_parallel", s_template: "filename_template", s_proxy: "proxy", s_extra: "extra_args",
-            s_fetch: "fetch_qualities_on_add", s_subfolder: "subfolder", s_overwrite: "overwrite", s_thumb: "thumbnail", s_nfo: "nfo" };
+            s_fetch: "fetch_qualities_on_add", s_overwrite: "overwrite", s_thumb: "thumbnail", s_nfo: "nfo" };
 $("#settingsBtn").onclick = () => {
   const s = state.settings;
   for (const [id, k] of Object.entries(S)) { const el = $("#" + id); if (el.type === "checkbox") el.checked = !!s[k]; else el.value = s[k] ?? ""; }
