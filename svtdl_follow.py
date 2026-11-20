@@ -153,6 +153,28 @@ def _pid_alive(pid: int) -> bool:
         return True
 
 
+def boot_time() -> float:
+    """When the computer last started (0 if unknown)."""
+    try:
+        if core.IS_WINDOWS:
+            import ctypes
+            k32 = ctypes.WinDLL("kernel32")
+            k32.GetTickCount64.restype = ctypes.c_ulonglong
+            return time.time() - k32.GetTickCount64() / 1000.0
+        if core.IS_MAC:
+            import re
+            out = subprocess.run(["sysctl", "-n", "kern.boottime"], capture_output=True, text=True, timeout=5).stdout
+            m = re.search(r"sec\s*=\s*(\d+)", out)
+            return float(m.group(1)) if m else 0.0
+        with open("/proc/stat") as f:
+            for line in f:
+                if line.startswith("btime "):
+                    return float(line.split()[1])
+    except Exception:  # noqa: BLE001
+        pass
+    return 0.0
+
+
 def run_lock_path() -> Path:
     return data_dir() / "scheduled-run.json"
 
@@ -161,7 +183,9 @@ def running() -> Optional[dict]:
     """The run in progress, if any: {"pid", "start", "trigger", "now"}."""
     try:
         info = json.loads(run_lock_path().read_text(encoding="utf-8"))
-        if _pid_alive(int(info.get("pid", 0))) and time.time() - float(info.get("start", 0)) < 12 * 3600:
+        start = float(info.get("start", 0))
+        # A run from before the computer restarted is over, even if a new program got the same number.
+        if start > boot_time() and _pid_alive(int(info.get("pid", 0))) and time.time() - start < 12 * 3600:
             return info
     except (OSError, ValueError, TypeError):
         pass

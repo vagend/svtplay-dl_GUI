@@ -847,7 +847,10 @@ class Item:
         # this computer first and copy the finished file over afterwards.
         self.drop_stage()
         work_dir = self.output_dir
-        if core.is_network_path(self.output_dir):
+        # Network folders download here first and are copied over at the end. Scheduled runs always do:
+        # if the computer restarts mid-download, the half file stays in the temporary folder (cleared
+        # next run) instead of the real one, where svtplay-dl would later take it for a finished episode.
+        if core.is_network_path(self.output_dir) or getattr(self.app, "scheduled", False):
             self.stage_dir = getattr(self.app, "stage_root", None) or core.staging_root()
             self.stage_dir = self.stage_dir / f"item-{self.id}-{int(time.time())}"
             try:
