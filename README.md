@@ -66,8 +66,13 @@ Plex never picks up half a file. If the share is busy or unreachable, it keeps t
 
 The app can download new episodes of a show by itself, for example every morning.
 
-1. Paste the show's link. In the list of episodes that opens, tick **Follow this show**.
-   Tick any episodes you want now as well, then click the green button.
+1. Paste the show's link (the show's own page, not one episode's: on TV4 Play that's a
+   `tv4play.se/program/…` link). In the list of episodes that opens, tick **Follow this show**.
+   Tick any episodes you want now as well, then click the green button. Show links from SVT Play,
+   TV4 Play, UR Play, NRK TV and DR TV open the list by themselves; for other sites, turn on
+   **Whole series** first. TV4 Play also needs your TV4 login token (see
+   [svtplay-dl.se/tv4play](https://svtplay-dl.se/tv4play/)): add `--token` and the token under
+   **Settings > Extra arguments**.
 2. Click the **clock button** at the top of the window. Turn on **Check for new episodes**,
    pick the days and the time, and click **Save schedule**.
 

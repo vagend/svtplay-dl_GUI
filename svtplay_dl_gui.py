@@ -688,19 +688,49 @@ _EPISODE_RE = re.compile(r"(?:episode|avsnitt|episod|jakso|afsnit|folge)[\s/_.-]
 _NUMBERED_NAME_RE = re.compile(r"(?:^|\s[–—-]\s)(\d{1,3})\.\s+\S")
 
 
+# Links to a whole show (not one video) on the sites where svtplay-dl can list the episodes with -A.
+# Such a link goes straight to the episode picker, where the show can also be followed.
+_SHOW_PATHS = {
+    "svtplay.se": None,                        # anything but /video, /klipp and /kanaler (below)
+    "tv4play.se": ("/program/", "/lista/"),
+    "urplay.se": ("/serie/",),
+    "tv.nrk.no": ("/serie/",),
+    "dr.dk": ("/drtv/serie/", "/drtv/saeson/", "/drtv/sasong/"),
+}
+
+
 def is_show_page(url: str) -> bool:
-    """An SVT Play link to a show rather than to one video. svtplay-dl only downloads single
-    videos from /video, /klipp and /kanaler links ("This mode is not supported anymore"),
-    but it can list a show page's episodes, so such a link goes to the episode picker."""
+    """A link to a show rather than to one video. svtplay-dl won't download a show link as one
+    video (SVT: "This mode is not supported anymore", TV4: "Use the video page not the series
+    page"), but it can list the show's episodes, so such a link goes to the episode picker."""
     try:
         u = urlparse(url)
     except ValueError:
         return False
     host = u.netloc.lower().split(":")[0]
-    if host not in ("www.svtplay.se", "svtplay.se"):
+    if host.startswith("www."):
+        host = host[4:]
+    if host not in _SHOW_PATHS:
         return False
     path = u.path.rstrip("/")
-    return bool(path) and not path.startswith(("/video", "/klipp", "/kanaler"))
+    prefixes = _SHOW_PATHS[host]
+    if prefixes is None:
+        return bool(path) and not path.startswith(("/video", "/klipp", "/kanaler"))
+    return any(path.startswith(pre) and len(path) > len(pre) for pre in prefixes)
+
+
+def explain(msg: str) -> str:
+    """svtplay-dl's message, with what to do about it for the ones people run into most."""
+    low = msg.lower()
+    if "need a token" in low:
+        return ("TV4 Play needs your TV4 login token: get it as described on svtplay-dl.se/tv4play, "
+                "then add --token followed by the token under Settings > Extra arguments.")
+    if "use program page instead" in low:
+        return ("That's one episode's link. To get the whole show or follow it, paste the show's page "
+                "instead (tv4play.se/program/…).")
+    if "use the video page not the series page" in low:
+        return "That's a show's page: turn on Whole series to pick its episodes."
+    return msg
 
 
 def order_episodes(episodes: list) -> None:
@@ -893,7 +923,7 @@ class Item:
                 self.set("merging")
             elif ev.kind == "error":
                 self.had_error = True
-                self.last_error = ev.text
+                self.last_error = explain(ev.text)
             elif ev.kind == "warning":
                 if "already exists" in ev.text:
                     self.skipped = True
@@ -1182,7 +1212,7 @@ class App:
             with self.fetch_slots:
                 rc, events, log = core.run_collect(cmd, timeout=120)
             rows = core.parse_quality_table([e.text for e in events if e.kind == "info"])
-            errs = [e.text for e in events if e.kind == "error"]
+            errs = [explain(e.text) for e in events if e.kind == "error"]
             crash = ""
             if not rows and any("svtplay-dl crashed" in l for l in log):
                 # svtplay-dl hides the reason unless it runs with --verbose, so ask once more that way
@@ -1220,16 +1250,20 @@ class App:
             for e in events:
                 if e.kind == "url" and e.text not in found:
                     found.append(e.text)
-            errs = [e.text for e in events if e.kind == "error"]
+            errs = [explain(e.text) for e in events if e.kind == "error"]
+            if not found and not errs:
+                errs = [explain(e.text) for e in events if e.kind == "warning"]
             with self.lock:
                 if holder not in self.items:
                     return
-                if len(found) <= 1:
+                # A show page opens the picker even with one episode, so a new show can be followed.
+                if len(found) == 0 or (len(found) == 1 and not is_show_page(url)):
                     holder.log = ["(episode search)"] + log
                     if found:
                         holder.url = found[0]
-                    holder.set("new", errs[-1] if errs and not found else "Only one episode found",
-                               "error" if errs and not found else "")
+                    holder.set("new", errs[-1] if errs and not found else
+                               ("No episodes found" if not found else "Only one episode found"),
+                               "error" if not found else "")
                     if self.settings.fetch_qualities_on_add:
                         self._fetch_qualities(holder)
                     return
@@ -1241,7 +1275,7 @@ class App:
                                             "episode": ep, "inList": u in existing})
                 holder.log = ["(episode search)"] + log
                 order_episodes(holder.episodes)
-                holder.set("picking", f"{len(found)} episodes found")
+                holder.set("picking", f"{len(found)} episodes found" if len(found) != 1 else "1 episode found")
                 self._fetch_episode_meta(holder)
         threading.Thread(target=work, daemon=True).start()
 
@@ -1829,8 +1863,9 @@ def find_episodes(cmd: list[str], settings: core.Settings, url: str) -> tuple[li
     for e in events:
         if e.kind == "url" and e.text not in found:
             found.append(e.text)
-    errs = [e.text for e in events if e.kind == "error"]
+    errs = [explain(e.text) for e in events if e.kind == "error"]
     if not found:
+        errs = errs or [explain(e.text) for e in events if e.kind == "warning"]
         crash = [l for l in log if re.match(r"^\w+(Error|Exception)\b.*:", l)]
         return [], (errs[-1] if errs else (crash[-1] if crash else f"svtplay-dl exited with code {rc}")), log
     eps = [{"url": u, "season": None, "episode": None} for u in found]
