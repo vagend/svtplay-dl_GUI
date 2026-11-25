@@ -277,6 +277,12 @@ footer { border-top: 1px solid var(--border); background: var(--surface); paddin
 .check { display: flex; gap: 9px; align-items: flex-start; cursor: pointer; font-size: 13px; }
 .check input { accent-color: var(--accent); width: 16px; height: 16px; margin: 1px 0 0; }
 .check small { display: block; color: var(--faint); font-size: 12px; }
+details.tok { margin-top: 4px; }
+details.tok summary { cursor: pointer; color: var(--accent-text); width: max-content; }
+details.tok ol { margin: 6px 0; padding-left: 20px; line-height: 1.6; }
+details.tok a, .help a { color: var(--accent-text); }
+.tokmsg.ok { color: var(--accent-text); font-weight: 600; }
+.tokmsg.err { color: var(--warn); }
 pre.log { margin: 0; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--surface-2);
   border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; white-space: pre-wrap; word-break: break-all;
   max-height: 60vh; overflow: auto; }
@@ -406,14 +412,26 @@ pre.log { margin: 0; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monosp
         <label class="k" for="s_proxy">Proxy</label>
         <input class="input" id="s_proxy" placeholder="none">
         <div class="help">Only svtplay-dl's traffic goes through it, e.g. socks5://host:1080 or http://host:8080. A browser-extension VPN doesn't cover downloads, but a full VPN app does.</div>
+        <label class="k" for="s_tv4">TV4 Play login</label>
+        <div class="inline"><input class="input" id="s_tv4" type="password" placeholder="Paste your TV4 token here" autocomplete="off" spellcheck="false">
+          <button class="btn" id="s_tv4show" type="button">Show</button><button class="btn" id="s_tv4check" type="button">Check</button></div>
+        <div class="help"><span class="tokmsg" id="s_tv4msg">TV4 Play only works with your TV4 account (a free one is enough for free programs).</span>
+          <details class="tok"><summary>How to get the token</summary><ol>
+            <li>Log in to TV4 Play in Chrome, Edge or Firefox on this computer: <a href="#" data-ext="https://www.tv4play.se/">tv4play.se</a></li>
+            <li>Press <kbd>F12</kbd> (Mac: <kbd>⌥⌘I</kbd>) to open the developer tools.</li>
+            <li>Chrome/Edge: <b>Application</b> tab &gt; <b>Cookies</b> &gt; tv4play.se. Firefox: <b>Storage</b> tab &gt; <b>Cookies</b>.</li>
+            <li>Find <b>tv4-refresh-token</b>, double-click its value, copy it and paste it above. Click <b>Check</b>.</li>
+          </ol>
+          <div>The token is your login, so don't share it. If TV4 Play stops working later, log in again and get a new one. svtplay-dl's own guide: <a href="#" data-ext="https://svtplay-dl.se/tv4play/">svtplay-dl.se/tv4play</a></div></details></div>
         <label class="k" for="s_extra">Extra arguments</label>
-        <input class="input" id="s_extra" placeholder="e.g. --chapters">
+        <input class="input" id="s_extra" placeholder="e.g. --all-subtitles">
         <div class="help">Added to every svtplay-dl command.</div>
         <div class="checks">
           <label class="check"><input type="checkbox" id="s_fetch"><span>Check qualities when adding<small>Lets you pick an exact stream per video</small></span></label>
           <label class="check"><input type="checkbox" id="s_overwrite"><span>Overwrite existing files<small>Otherwise they're skipped</small></span></label>
           <label class="check"><input type="checkbox" id="s_thumb"><span>Save thumbnail image</span></label>
           <label class="check"><input type="checkbox" id="s_nfo"><span>Create .nfo files<small>For Plex, Kodi and Jellyfin</small></span></label>
+          <label class="check"><input type="checkbox" id="s_chapters"><span>Add chapters<small>When the site has them, so players can jump between parts</small></span></label>
         </div>
       </div>
     </div>
@@ -1049,10 +1067,22 @@ addEventListener("keydown", e => { if (e.key === "Escape") { if (ask.cancel && $
 $("#logCopy").onclick = () => navigator.clipboard.writeText($("#logText").textContent).then(() => toast("Log copied"));
 
 const S = { s_path: "svtplay_path", s_parallel: "max_parallel", s_template: "filename_template", s_proxy: "proxy", s_extra: "extra_args",
-            s_fetch: "fetch_qualities_on_add", s_overwrite: "overwrite", s_thumb: "thumbnail", s_nfo: "nfo" };
+            s_fetch: "fetch_qualities_on_add", s_overwrite: "overwrite", s_thumb: "thumbnail", s_nfo: "nfo",
+            s_tv4: "tv4_token", s_chapters: "chapters" };
+const TV4_DEFAULT_MSG = $("#s_tv4msg").textContent;
+function tv4Msg(text, cls) { const m = $("#s_tv4msg"); m.textContent = text; m.className = "tokmsg" + (cls ? " " + cls : ""); }
+$("#s_tv4show").onclick = () => { const i = $("#s_tv4"); const hide = i.type === "text"; i.type = hide ? "password" : "text"; $("#s_tv4show").textContent = hide ? "Show" : "Hide"; };
+$("#s_tv4").oninput = () => tv4Msg(TV4_DEFAULT_MSG);
+$("#s_tv4check").onclick = async () => {
+  const b = $("#s_tv4check"); b.disabled = true; tv4Msg("Asking TV4…");
+  try { const r = await api("/api/tv4_check", { token: $("#s_tv4").value }); tv4Msg(r.message, r.ok ? "ok" : "err"); }
+  finally { b.disabled = false; }
+};
+document.addEventListener("click", e => { const a = e.target.closest("[data-ext]"); if (!a) return; e.preventDefault(); api("/api/open_url", { url: a.dataset.ext }); });
 $("#settingsBtn").onclick = () => {
   const s = state.settings;
   for (const [id, k] of Object.entries(S)) { const el = $("#" + id); if (el.type === "checkbox") el.checked = !!s[k]; else el.value = s[k] ?? ""; }
+  $("#s_tv4").type = "password"; $("#s_tv4show").textContent = "Show"; tv4Msg(TV4_DEFAULT_MSG);
   $("#s_found").textContent = state.tools.svtplay ? "Using: " + state.tools.svtplay : "svtplay-dl was not found automatically.";
   $("#appVer").textContent = state.appVersion ? "svtplay-dl GUI " + state.appVersion : "";
   openDlg("#settingsDlg");

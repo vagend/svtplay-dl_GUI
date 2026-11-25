@@ -199,6 +199,8 @@ class Settings:
     filename_template: str = ""       # --filename, empty = svtplay-dl default
     proxy: str = ""                   # --proxy
     extra_args: str = ""              # free text, split like a shell would
+    tv4_token: str = ""               # --token, only for TV4 Play links
+    chapters: bool = False            # --chapters
     fetch_qualities_on_add: bool = True
     expand_series: bool = False
     series_last: int = 0              # 0 = all episodes, else --all-last N
@@ -447,10 +449,46 @@ def build_args(settings: Settings, quality_args: Optional[list[str]] = None) -> 
         a.append("--nfo")
     if settings.filename_template.strip():
         a += ["--filename", settings.filename_template.strip()]
+    if settings.chapters:
+        a.append("--chapters")
     if settings.proxy.strip():
         a += ["--proxy", settings.proxy.strip()]
     a += split_extra(settings.extra_args)
     return a
+
+
+def is_tv4(url: str) -> bool:
+    try:
+        host = urlparse(url).netloc.lower().split(":")[0]
+    except ValueError:
+        return False
+    return host in ("tv4play.se", "tv4.se") or host.endswith((".tv4play.se", ".tv4.se"))
+
+
+def site_args(settings: Settings, url: str) -> list[str]:
+    """Options that only go with links to one site: the TV4 Play login token."""
+    if settings.tv4_token.strip() and is_tv4(url):
+        return ["--token", settings.tv4_token.strip()]
+    return []
+
+
+SECRET_OPTS = ("--token", "-p", "--password", "--cookies", "--http-header")
+
+
+def shown(cmd: list[str]) -> str:
+    """A command line for the log, with logins blanked out (logs get copied into chats and bug reports)."""
+    out, hide = [], False
+    for a in cmd:
+        if hide:
+            out.append("<hidden>")
+            hide = False
+            continue
+        if a in SECRET_OPTS:
+            hide = True
+        elif any(a.startswith(o + "=") for o in SECRET_OPTS if o.startswith("--")):
+            a = a.split("=", 1)[0] + "=<hidden>"
+        out.append(a)
+    return " ".join(out)
 
 
 # --------------------------------------------------------------------------

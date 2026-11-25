@@ -24,6 +24,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
 import urllib.request
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -194,6 +195,51 @@ def _get_json(url: str) -> dict:
     with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "svtplay-dl-gui"}),
                                 timeout=15) as resp:
         return json.loads(resp.read().decode("utf-8"))
+
+
+TV4_AUTH = os.environ.get("SVTDL_GUI_TV4_AUTH", "https://auth.tv4.a2d.tv/v2/auth/token")
+
+
+def _token_expiry(token: str) -> float:
+    """When a JWT-style token runs out (0 if it isn't one or doesn't say)."""
+    import base64
+    parts = token.split(".")
+    if len(parts) != 3:
+        return 0.0
+    try:
+        pad = parts[1] + "=" * (-len(parts[1]) % 4)
+        return float(json.loads(base64.urlsafe_b64decode(pad)).get("exp") or 0)
+    except (ValueError, TypeError, AttributeError):
+        return 0.0
+
+
+def check_tv4_token(token: str, proxy: str = "") -> dict:
+    """Ask TV4 whether it accepts the token, the same way svtplay-dl logs in.
+    {"ok": True, "message": …} / {"ok": False, "message": …}"""
+    token = token.strip()
+    if not token:
+        return {"ok": False, "message": "Paste your TV4 token first."}
+    if token.lower().startswith("bearer "):
+        token = token[7:].strip()
+    body = json.dumps({"grant_type": "refresh_token", "refresh_token": token, "profile_id": "default",
+                       "is_child": False}).encode()
+    headers = {"Content-Type": "application/json", "client-name": "tv4-web", "User-Agent": "svtplay-dl-gui"}
+    try:
+        handlers = [urllib.request.ProxyHandler({"http": proxy, "https": proxy})] if proxy and not proxy.startswith("socks") else []
+        opener = urllib.request.build_opener(*handlers)
+        with opener.open(urllib.request.Request(TV4_AUTH, data=body, headers=headers, method="POST"), timeout=15) as r:
+            ok = 200 <= r.status < 300 and "access_token" in json.loads(r.read().decode("utf-8", "replace"))
+    except urllib.error.HTTPError as e:
+        if 400 <= e.code < 500:
+            return {"ok": False, "message": "TV4 didn't accept this token. Get a new one (steps below) and paste it again."}
+        return {"ok": False, "message": f"TV4's login service had a problem (error {e.code}). Try again later."}
+    except Exception as e:  # noqa: BLE001  (offline, SSL, …)
+        return {"ok": False, "message": f"Couldn't reach TV4 to check the token: {e}"}
+    if not ok:
+        return {"ok": False, "message": "TV4 answered, but not with a login. Get a new token and try again."}
+    exp = _token_expiry(token)
+    until = f" It's valid until {time.strftime('%Y-%m-%d', time.localtime(exp))}." if exp > time.time() else ""
+    return {"ok": True, "message": "TV4 accepted the token: TV4 Play links will use your account." + until}
 
 
 def version_tuple(v: str) -> tuple:
@@ -719,17 +765,34 @@ def is_show_page(url: str) -> bool:
     return any(path.startswith(pre) and len(path) > len(pre) for pre in prefixes)
 
 
-def explain(msg: str) -> str:
+TOKEN_TROUBLE = "TV4 Play login"     # in every message about the TV4 token, so a scheduled run can tell
+PERMANENT = ("copy-protected (DRM)", "can't watch this one")   # no use trying these episodes again
+
+
+def explain(msg: str, settings: Optional[core.Settings] = None) -> str:
     """svtplay-dl's message, with what to do about it for the ones people run into most."""
     low = msg.lower()
     if "need a token" in low:
-        return ("TV4 Play needs your TV4 login token: get it as described on svtplay-dl.se/tv4play, "
-                "then add --token followed by the token under Settings > Extra arguments.")
+        if settings is not None and settings.tv4_token.strip():
+            return (f"TV4 Play didn't accept your login token. It has probably run out or you logged out: "
+                    f"get a new one and paste it in Settings > {TOKEN_TROUBLE}.")
+        return f"TV4 Play needs you to be logged in: paste your TV4 token in Settings > {TOKEN_TROUBLE}."
+    if "drm protected" in low:
+        return ("This video is copy-protected (DRM). svtplay-dl can't download copy-protected videos; "
+                "many TV4 Play programs are.")
+    if "don't have access to it" in low:
+        return ("Your TV4 account can't watch this one: it may need a paid TV4 Play subscription, "
+                "or it's no longer available.")
+    if "geoblocked" in low:
+        return ("This video can only be watched from its own country (Sweden for Swedish sites). "
+                "Connect with a VPN app there, or set a proxy in Settings.")
     if "use program page instead" in low:
         return ("That's one episode's link. To get the whole show or follow it, paste the show's page "
                 "instead (tv4play.se/program/…).")
     if "use the video page not the series page" in low:
         return "That's a show's page: turn on Whole series to pick its episodes."
+    if "site is not supported" in low:
+        return "svtplay-dl doesn't support this site."
     return msg
 
 
@@ -892,11 +955,12 @@ class Item:
         self.had_error = self.skipped = False
         self.last_error = ""
         settings = core.Settings(**{**s.__dict__, "output_dir": work_dir})
-        full = cmd + core.build_args(settings, self.quality_args()) + (["--verbose"] if verbose else []) + [self.url]
+        full = (cmd + core.build_args(settings, self.quality_args()) + core.site_args(settings, self.url)
+                + (["--verbose"] if verbose else []) + [self.url])
         earlier = self.log if verbose else []
         self.verbose_run = verbose
         self.log = earlier + (["", "--- svtplay-dl crashed, so it was run again with --verbose for details ---"]
-                              if verbose else []) + ["$ " + " ".join(full), ""]
+                              if verbose else []) + ["$ " + core.shown(full), ""]
         self.set("starting", "svtplay-dl crashed. Trying once more to get details…" if verbose else "")
         self.runner = core.Runner(full, self.on_event, self.on_exit)
         self.runner.start()
@@ -923,7 +987,7 @@ class Item:
                 self.set("merging")
             elif ev.kind == "error":
                 self.had_error = True
-                self.last_error = explain(ev.text)
+                self.last_error = explain(ev.text, self.app.settings)
             elif ev.kind == "warning":
                 if "already exists" in ev.text:
                     self.skipped = True
@@ -1206,20 +1270,21 @@ class App:
 
     def _fetch_qualities(self, it: Item) -> None:
         it.set("fetching")
-        cmd = self.svtplay_cmd + ["--list-quality"] + core.split_extra(self.settings.extra_args) + [it.url]
+        cmd = (self.svtplay_cmd + ["--list-quality"] + core.split_extra(self.settings.extra_args)
+               + core.site_args(self.settings, it.url) + [it.url])
 
         def work():
             with self.fetch_slots:
                 rc, events, log = core.run_collect(cmd, timeout=120)
             rows = core.parse_quality_table([e.text for e in events if e.kind == "info"])
-            errs = [explain(e.text) for e in events if e.kind == "error"]
+            errs = [explain(e.text, self.settings) for e in events if e.kind == "error"]
             crash = ""
             if not rows and any("svtplay-dl crashed" in l for l in log):
                 # svtplay-dl hides the reason unless it runs with --verbose, so ask once more that way
                 with self.fetch_slots:
                     _rc, _ev, vlog = core.run_collect(cmd[:-1] + ["--verbose", cmd[-1]], timeout=120)
                 log = log + ["", "--- svtplay-dl crashed, so it was run again with --verbose for details ---",
-                             "$ " + " ".join(cmd[:-1] + ["--verbose", cmd[-1]]), ""] + vlog
+                             "$ " + core.shown(cmd[:-1] + ["--verbose", cmd[-1]]), ""] + vlog
                 lines = [l for l in vlog if re.match(r"^\w+(Error|Exception)\b.*:", l)]
                 crash = ("svtplay-dl crashed while checking this video: " + lines[-1]
                          + " (click the log icon for details)") if lines else ""
@@ -1242,7 +1307,7 @@ class App:
             return
         holder.set("expanding")
         cmd = self.svtplay_cmd + ["-A", "--get-url", "--get-only-episode-url"]
-        cmd += core.split_extra(self.settings.extra_args) + [url]
+        cmd += core.split_extra(self.settings.extra_args) + core.site_args(self.settings, url) + [url]
 
         def work():
             rc, events, log = core.run_collect(cmd, timeout=300)
@@ -1250,9 +1315,9 @@ class App:
             for e in events:
                 if e.kind == "url" and e.text not in found:
                     found.append(e.text)
-            errs = [explain(e.text) for e in events if e.kind == "error"]
+            errs = [explain(e.text, self.settings) for e in events if e.kind == "error"]
             if not found and not errs:
-                errs = [explain(e.text) for e in events if e.kind == "warning"]
+                errs = [explain(e.text, self.settings) for e in events if e.kind == "warning"]
             with self.lock:
                 if holder not in self.items:
                     return
@@ -1401,6 +1466,13 @@ class App:
                     self.settings.output_dir = folder
                     self.settings.save()
             return {"ok": True, "folder": folder}
+        if name == "open_url":   # links in the page open in the real browser
+            url = str(data.get("url", ""))
+            if urlparse(url).netloc.lower() in ("svtplay-dl.se", "www.tv4play.se", "tv4play.se"):
+                webbrowser.open(url)
+            return {"ok": True}
+        if name == "tv4_check":   # (a network request: not under the lock)
+            return check_tv4_token(str(data.get("token", "")), self.settings.proxy.strip())
         if name == "choose_program":
             return {"ok": True, "path": choose_file()}
         if name == "update_check":
@@ -1857,15 +1929,16 @@ class ScheduledApp:
 
 def find_episodes(cmd: list[str], settings: core.Settings, url: str) -> tuple[list[str], str, list[str]]:
     """The show's episode links as svtplay-dl lists them, oldest first when the numbers are known."""
-    full = cmd + ["-A", "--get-url", "--get-only-episode-url"] + core.split_extra(settings.extra_args) + [url]
+    full = (cmd + ["-A", "--get-url", "--get-only-episode-url"] + core.split_extra(settings.extra_args)
+            + core.site_args(settings, url) + [url])
     rc, events, log = core.run_collect(full, timeout=300)
     found: list[str] = []
     for e in events:
         if e.kind == "url" and e.text not in found:
             found.append(e.text)
-    errs = [explain(e.text) for e in events if e.kind == "error"]
+    errs = [explain(e.text, settings) for e in events if e.kind == "error"]
     if not found:
-        errs = errs or [explain(e.text) for e in events if e.kind == "warning"]
+        errs = errs or [explain(e.text, settings) for e in events if e.kind == "warning"]
         crash = [l for l in log if re.match(r"^\w+(Error|Exception)\b.*:", l)]
         return [], (errs[-1] if errs else (crash[-1] if crash else f"svtplay-dl exited with code {rc}")), log
     eps = [{"url": u, "season": None, "episode": None} for u in found]
@@ -1963,17 +2036,19 @@ def run_scheduled(trigger: str) -> int:
                     note(lambda s, u=ep_url: s.update(seen=sorted(set(s.get("seen", [])) | {u})))
                 else:
                     msg = it.note or f"didn't finish ({it.status})"
-                    if "folder isn't available" in msg:   # not this episode's fault: try it next time
+                    if "folder isn't available" in msg or TOKEN_TROUBLE in msg:
+                        # not this episode's fault: try it next time
                         say(f"{title}: {msg}")
                         run["errors"].append(f"{title}: {msg}")
                         break
                     say(f"{title}: failed: {msg}")
                     run["errors"].append(f"{title}: {msg}")
+                    never = any(x in msg for x in PERMANENT)
 
-                    def failed(s, u=ep_url):
+                    def failed(s, u=ep_url, never=never):
                         f = s.setdefault("failures", {})
                         f[u] = f.get(u, 0) + 1
-                        if f[u] >= follow.GIVE_UP_AFTER:   # stop trying this one
+                        if never or f[u] >= follow.GIVE_UP_AFTER:   # stop trying this one
                             s["seen"] = sorted(set(s.get("seen", [])) | {u})
                             f.pop(u, None)
                     note(failed)

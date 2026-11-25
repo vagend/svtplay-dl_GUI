@@ -62,6 +62,23 @@ video over at the end. It copies to a temporary `.part` name and renames it when
 Plex never picks up half a file. If the share is busy or unreachable, it keeps trying for about
 30 seconds. If it still can't copy, the download is kept on this computer and the card says where.
 
+## TV4 Play
+
+TV4 Play only works with your TV4 account (a free account is enough for the free programs).
+svtplay-dl logs in with a *token* you copy from your browser once:
+
+1. Log in on [tv4play.se](https://www.tv4play.se/) in Chrome, Edge or Firefox.
+2. Open the developer tools (**F12**, on a Mac **⌥⌘I**), then **Application** (Firefox: **Storage**)
+   > **Cookies** > tv4play.se, and copy the value of **tv4-refresh-token**.
+3. In the app, open **Settings**, paste it under **TV4 Play login** and click **Check**.
+
+The token is only sent with TV4 Play links and is hidden in the app's logs, so a log can be shared
+safely. If TV4 Play stops working later, the token has run out: log in again and copy a new one.
+svtplay-dl's own guide: [svtplay-dl.se/tv4play](https://svtplay-dl.se/tv4play/).
+
+Many TV4 Play programs are copy-protected (DRM). svtplay-dl can't download those, and the app says
+so. Automatic downloads skip such episodes right away instead of trying them again.
+
 ## Automatic downloads (follow a show)
 
 The app can download new episodes of a show by itself, for example every morning.
@@ -70,9 +87,7 @@ The app can download new episodes of a show by itself, for example every morning
    `tv4play.se/program/…` link). In the list of episodes that opens, tick **Follow this show**.
    Tick any episodes you want now as well, then click the green button. Show links from SVT Play,
    TV4 Play, UR Play, NRK TV and DR TV open the list by themselves; for other sites, turn on
-   **Whole series** first. TV4 Play also needs your TV4 login token (see
-   [svtplay-dl.se/tv4play](https://svtplay-dl.se/tv4play/)): add `--token` and the token under
-   **Settings > Extra arguments**.
+   **Whole series** first. TV4 Play also needs your TV4 login (see **TV4 Play** below).
 2. Click the **clock button** at the top of the window. Turn on **Check for new episodes**,
    pick the days and the time, and click **Save schedule**.
 
@@ -124,7 +139,7 @@ them and quit. The power button at the top right does the same.
 - **Subfolder per series** switch at the bottom of the window: a series' episodes go in a folder named
   after the series, inside Save to. Movies and single programs go in a folder called "movies".
 - Settings: svtplay-dl location, file name pattern, overwrite, thumbnail,
-  .nfo files for Plex, proxy, extra arguments.
+  .nfo files for Plex, chapters, TV4 Play login, proxy, extra arguments.
 
 ## How it's built
 
